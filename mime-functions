@@ -1,0 +1,898 @@
+#! /bin/bash
+
+#
+# Mime-functions version 1.0
+#
+# Copyright (C) 2014 Andriy Martynets <martynets@volia.ua>
+#--------------------------------------------------------------------------------------------------------------
+# This file is part of xdg-bash-functions.
+#
+# Xdg-bash-functions is free software: you can redistribute it and/or modify it under the terms of
+# the GNU General Public License as published by the Free Software Foundation,
+# either version 3 of the License, or (at your option) any later version.
+#
+# Xdg-bash-functions is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with xdg-bash-functions.
+# If not, see http://www.gnu.org/licenses/.
+#--------------------------------------------------------------------------------------------------------------
+#
+#
+# Based on freedesktop.org specifications:
+#	Shared MIME-info Database specification version 0.20
+#	Association between MIME types and applications version 1.0
+#	Desktop Entry Specification versions 0.9.5 and 1.1
+# and mailcap file format (Appendix A of RFC 1524).
+#
+# Packages which these functions depend on:
+#	coreutils (cat tool - see translate_view_command and translate_exec functions below and
+#		mkdir tool - see mime_functions_init function below)
+#	xterm (lxterm tool - see DEFAULTTERMINALCOMMAND global variable below)
+#	less (less tool - see DEFAULTPAGER global variable below)
+#
+#
+#
+# get_command_for_type is the root function which receives one mandatory argument - MIME type/subtype of a file and
+# sets EXEC and ICON global variables. EXEC is set with command to view the file (the file name should be placed on
+# the %s field). ICON is set with fully qualified file name of the icon file to represent the given MIME type/subtype.
+#
+# Call to mime_functions_init function must precede any other calls and is to setup global variables (it also calls
+# icon_functions_init function).
+# These functions are optimised for subsequent calls to process multiple files (e.g. directory).
+# Call to save_mime_cache function can be used to flush collected data to the cache file. This will
+# speed up the script during subsequent calls. Call to this function should be made preferably at the
+# end of the executed script.
+#
+
+shopt -qs extglob
+shopt -qs globstar
+
+#--------------------------------------------------------------------------------------------------------------
+# Global variables:
+#--------------------------------------------------------------------------------------------------------------
+#
+#--Start of customizable variables-----------------------------------------------------------------------------
+#
+# On some old systems the below name might need to be changed to defaults.list
+MIMEAPPS=mimeapps.list
+
+# Debian derivatives default terminal emulator x-terminal-emulator may refer to lxterminal which seems to have a bug -
+# it doesn't handle properly command like:
+#	lxterminal -e 'cat "/bin/bzcmp" | less'
+DEFAULTTERMINALCOMMAND="lxterm -fa 'Mono:size=13:antialias=false' -e"
+DEFAULTPAGER=less
+
+# Set XDG global variables to their defaults if not set
+: ${XDG_CONFIG_HOME:=$HOME/.config}
+: ${XDG_DATA_HOME:=$HOME/.local/share}
+: ${XDG_CONFIG_DIRS:=/etc/xdg}
+: ${XDG_DATA_DIRS:=/usr/local/share:/usr/share}
+
+# Default locations of mailcap files
+MAILCAPFILES="$HOME/.mailcap:/etc/mailcap:/usr/share/etc/mailcap:/usr/local/etc/mailcap"
+
+# List of file managers to try if system default one not found
+DEFAULTBROWSERSLIST="spacefm:pcmanfm:rox:thunar:nautilus:dolphin"
+
+# MIME functions cache file name
+MIMECACHEFILE="$HOME/.cache/mime-functions.cache"
+
+#
+#--End of customizable variables-------------------------------------------------------------------------------
+
+NAME=
+EXEC=
+ICON=
+TERMINAL=false
+
+declare -a MIMECACHE
+MIMECACHE_INDEX=0
+
+declare -a MIMEALIASES
+ALIASES_INDEX=0
+ALIASES_LOADED=
+
+declare -a MAILCAP
+MAILCAP_INDEX=0
+MAILCAP_LOADED=
+
+MIMEAPPSFILES=
+MIMEINFOCACHEDIRS=
+
+FILEBROWSER=
+FILEBROWSERNAME=
+FILEBROWSERICON=
+
+DEFAULTICON=
+
+MIME_DATA_CHANGED="false"
+MIME_FUNCTIONS_NAME=
+
+#--------------------------------------------------------------------------------------------------------------
+
+# =========================================================================================================
+# set_mime_functions_name function receives no arguments.
+# It finds this file name for further reference. This must be done from a function to have caller reference
+# to this file. This function call goes first as it must be called at sourcing time.
+# =========================================================================================================
+set_mime_functions_name()
+{
+
+ MIME_FUNCTIONS_NAME=$(caller)
+ MIME_FUNCTIONS_NAME=${MIME_FUNCTIONS_NAME#*+([[:space:]])}
+}
+
+set_mime_functions_name
+
+# Source the icon-functions file. It must be located in the same path as this file.
+. "${MIME_FUNCTIONS_NAME%/*}/icon-functions"
+
+
+# =========================================================================================================
+# mime_functions_init function receives one mandatory argument - flag the cache file is out-of-date (true or false).
+# It initializes global variables and returns success if they were initialized from scratch.
+# It returns failure if global variables were restored from the cache file.
+# =========================================================================================================
+mime_functions_init()
+{
+
+ local retvalue=0
+ local cache_is_obsolete=
+
+ [ "$1" == "true" ] && cache_is_obsolete=1	# this is not really necessary as icon_functions_init
+						# will confirm the cache file is out-of-date
+
+ # Generate list of all applicable directories for MIMEAPPS files:
+ ipathes=$XDG_CONFIG_HOME:$XDG_DATA_HOME/applications:$XDG_CONFIG_DIRS:${XDG_DATA_DIRS//$':'/$'/applications:'}/applications
+
+ # Generate list of all applicable filenames for MIMEAPPS files and test all these files and their directories whether
+ # they were changed since last run:
+ IFS=$':'
+ for idir in $ipathes
+ do
+	[ -z "$idir" ] && continue
+	[ "$idir" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
+	for idesktop in $XDG_CURRENT_DESKTOP
+	do
+		[ -z "$idesktop" ] && continue
+		ifile="$idir/$idesktop-$MIMEAPPS"
+		[ ! -r "$ifile" ] && continue
+		[ "$ifile" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
+		MIMEAPPSFILES="$MIMEAPPSFILES:$ifile"
+	done
+	ifile="$idir/$MIMEAPPS"
+	[ ! -r "$ifile" ] && continue
+	MIMEAPPSFILES="$MIMEAPPSFILES:$ifile"
+	[ "$ifile" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
+ done
+ MIMEAPPSFILES="${MIMEAPPSFILES#$':'}"
+
+ # Generate list of all applicable directories for mimeinfo.cache files and test all these files whether
+ # they were changed since last run:
+ IFS=$':'
+ for idir in $XDG_DATA_DIRS
+ do
+	[ -z "$idir" ] && continue
+	ifile="$idir/applications/mimeinfo.cache"
+	[ ! -r "$ifile" ] && continue
+	MIMEINFOCACHEDIRS="$MIMEINFOCACHEDIRS:$idir"
+	[ "$ifile" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
+ done
+ MIMEINFOCACHEDIRS="${MIMEINFOCACHEDIRS#$':'}"
+
+ # Walk through the list of mailcap files and test them whether they or their directories were changed since last run:
+ IFS=$':'
+ for ifile in $MAILCAPFILES
+ do
+	[ -z "$ifile" ] && continue
+	idir="${ifile%/*}"
+	[ "$idir" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
+	[ ! -r "$ifile" ] && continue
+	[ "$ifile" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
+ done
+
+ # Ensure the directory of the cache file exists
+ icachedir="${MIMECACHEFILE%/*}"
+ [ ! -d "$icachedir" ] && mkdir -p "$icachedir"
+
+ # Initialize icon functions and restore data from the cache file
+ if ! icon_functions_init "$1" && [ -z "$cache_is_obsolete" ] && [ -r "$MIMECACHEFILE" ] &&\
+	[ "$MIME_FUNCTIONS_NAME" -ot "$MIMECACHEFILE" ]
+ then
+	IFS=$'\r\n'
+	MIMECACHE=( $(<"$MIMECACHEFILE") )
+	MIMECACHE_INDEX=${#MIMECACHE[*]}
+	retvalue=1
+ fi
+
+ # Setup default icon for files of unknown type
+ find_mime_icon "application-x-executable" || find_places_icon "start-here" || find_apps_icon "system-software-install"\
+	|| find_apps_icon "system-file-manager"
+ DEFAULTICON="$ICON"
+
+ # Find default file browser to use it as the dummy command for files of unknown type
+ if find_command_for_type "inode/directory"
+ then
+	FILEBROWSER="$EXEC"
+	iexecname="${EXEC##+([[:space:]])}"
+	iexecname="${iexecname%%[[:space:]]*}"
+	iexecname="${iexecname##*/}"
+	FILEBROWSERNAME="${NAME:-$iexecname}"
+ else
+	IFS=$':'
+	for ibrowser in $DEFAULTBROWSERSLIST
+	do
+		type $ibrowser &>/dev/null && FILEBROWSER="$ibrowser %s" && FILEBROWSERNAME="$ibrowser" &&\
+			iexecname="$ibrowser" && break
+	done
+	[ -z "$FILEBROWSER" ] && FILEBROWSER="true" && FILEBROWSERNAME="--no file manager found--" &&\
+		iexecname="true"
+ fi
+ find_places_icon "folder" || find_apps_icon "system-file-manager" || find_apps_icon "${ICON:-$iexecname}"\
+	|| ICON="$DEFAULTICON"
+ FILEBROWSERICON="$ICON"
+
+ return $retvalue
+}
+
+# =========================================================================================================
+# save_mime_cache function receives no arguments.
+# It saves mime-functions specific data to the cache file.
+# =========================================================================================================
+save_mime_cache()
+{
+
+ if [ "$MIME_DATA_CHANGED" == "true" ]
+ then
+	IFS=$'\n\r\t ' # restore default value of internal field separator
+	: >"$MIMECACHEFILE"
+	for(( ci=0; ci<MIMECACHE_INDEX; ci++ ))
+	do
+		echo ${MIMECACHE[ci]} >>"$MIMECACHEFILE"
+	done
+ fi
+}
+
+# =========================================================================================================
+# get_command_for_type function receives one mandatory argument - MIME type/subtype.
+# It gets the command to open a file of such type from cache or calls find_command_for_type and
+# returns success.
+# =========================================================================================================
+get_command_for_type()
+{
+
+ local ctmime=$1
+
+ case $ctmime in
+	inode/x-empty)
+		ctmime=text/plain
+		;;
+	application/x-executable) ;&
+	application/x-sharedlib) ;&
+	application/octet-stream)
+		EXEC="$FILEBROWSER"
+		ICON="$DEFAULTICON"
+		return 0
+		;;
+	regular*) ;&
+	inode/*)
+		EXEC="true"
+		ICON="$DEFAULTICON"
+		return 0
+		;;
+ esac
+
+ for (( cti=0; cti<MIMECACHE_INDEX; cti+=3))
+ do
+	if [ "${MIMECACHE[cti]}" == "$ctmime" ]
+	then
+		EXEC="${MIMECACHE[ ((cti+1)) ]}"
+		ICON="${MIMECACHE[ ((cti+2)) ]}"
+		return 0
+	fi
+ done
+
+ if find_command_for_type $ctmime
+ then
+	find_icon_for_mime_type $ctmime || ICON="$DEFAULTICON"
+ else
+	# Fall back to the default file browser for files of unknown types to interact with the user
+	EXEC="$FILEBROWSER"
+	ICON="$DEFAULTICON"
+ fi
+
+
+ MIMECACHE[ $((MIMECACHE_INDEX++)) ]="$ctmime"
+ MIMECACHE[ $((MIMECACHE_INDEX++)) ]="$EXEC"
+ MIMECACHE[ $((MIMECACHE_INDEX++)) ]="$ICON"
+ MIME_DATA_CHANGED="true"
+
+ return 0
+}
+
+# =========================================================================================================
+# find_command_for_type function receives one mandatory argument - MIME type/subtype.
+# It calls find_desktop_file and search_through_mailcap and returns success if any of them was successful.
+# Otherwise returns failure.
+# =========================================================================================================
+find_command_for_type()
+{
+ find_desktop_file $1 && return 0
+
+ # Load all possible MIME type aliaces if not done so yet
+ if [ -z "$ALIASES_LOADED" ]
+ then
+	IFS=$':'
+	for idir in $XDG_DATA_HOME $XDG_DATA_DIRS
+	do
+		[ -z "$idir" ] && continue
+		ifile="$idir/mime/aliases"
+		[ ! -r "$ifile" ] && continue
+		while IFS=$' ' read ialiase itype
+		do
+			MIMEALIASES[$((ALIASES_INDEX++))]=$itype
+			MIMEALIASES[$((ALIASES_INDEX++))]=$ialiase
+		done < "$ifile"
+	done
+	ALIASES_LOADED=1
+ fi
+
+ # Look for possible aliaces before falling back to mailcap as this is part of desktop specifications
+ # Don't cache commands found for aliases as, hopefully, file tool never reports them...
+ for (( cti=0; cti<ALIASES_INDEX; cti+=2 ))
+ do
+	[ "${MIMEALIASES[cti]}" == "$1" ] && find_command_for_type ${MIMEALIASES[((cti+1))]} && return 0 # !!! recursion
+ done
+
+ search_through_mailcap $1 && return 0
+
+ return 1
+}
+
+# =========================================================================================================
+# find_desktop_file function receives one mandatory argument - MIME type/subtype.
+# It finds desktop file IDs for given MIME type and tries them in order setup within current environment.
+# It returns success if suitable ID found (supported keys are loaded) and failure otherwise.
+# =========================================================================================================
+find_desktop_file()
+{
+#--------------------------------------------------------------------------------------------
+# To do: cache mimeapps.list and mimeinfo.cache files. This is quite tricky with questionable effect.
+# 	Below code does cacheing but demostrates poor performance
+#--------------------------------------------------------------------------------------------
+
+ dfdesktopfile=""
+ dfblacklist=""
+
+ IFS=$':'
+ for dffile in $MIMEAPPSFILES
+ do
+	dfgroup=""
+	dfdefault=""
+	dfadded=""
+	dfremoved=""
+	while IFS=$'= \t' read dfkey dfvalue
+	do
+		case $dfkey in
+			'[Default')
+				[ "$dfvalue" == "Applications]" ] && dfgroup=default
+				;;
+			'[Added')
+				[ "$dfvalue" == "Associations]" ] && dfgroup=added
+				;;
+			'[Removed')
+				[ "$dfvalue" == "Associations]" ] && dfgroup=removed
+				;;
+			"$1")
+				case $dfgroup in
+					default)
+						dfdefault="$dfvalue"
+						;;
+					added)
+						dfadded="$dfvalue"
+						;;
+					removed)
+						dfremoved="$dfvalue"
+						;;
+				esac
+				;;
+		esac
+	done < "$dffile"
+
+	dfdefault="$dfdefault;$dfadded"
+	IFS=$';'
+	for dfvalue in $dfdefault
+	do
+		[[ "$dfblacklist" =~ (^|;)$dfvalue(;|$) ]] && continue
+		try_desktop_file_ID $dfvalue && translate_exec && return 0
+	done
+	dfblacklist="$dfblacklist;$dfremoved;$dfdefault" # IDs that have just been tried are blacklisted as they failed
+ done
+
+ IFS=$':'
+ for dfdir in $MIMEINFOCACHEDIRS
+ do
+	dfdefault=""
+	while IFS=$'= \t' read dfkey dfvalue
+	do
+		[ "$dfkey" == "$1" ] && dfdefault="$dfvalue" && break
+	done < "$dfdir/applications/mimeinfo.cache"
+	IFS=$';'
+	for dfvalue in $dfdefault
+	do
+		[[ "$dfblacklist" =~ (^|;)$dfvalue(;|$) ]] && continue
+		try_desktop_file_ID $dfvalue $dfdir && translate_exec && return 0
+	done
+	dfblacklist="$dfblacklist;$dfdefault" # IDs that have just been tried are blacklisted as they failed
+ done
+
+ return 1
+}
+
+# declare -a MIMEAPPS
+# MIMEAPPS_INDEX=0
+# MIMEAPPS_LOADED=
+#
+# declare -a MIMEINFO
+# MIMEINFO_INDEX=0
+# MIMEINFO_LOADED=
+#
+# find_desktop_file()
+# {
+#
+# # Load all possible mimeapps.list files if not done yet
+# if [ -z "$MIMEAPPS_LOADED" ]
+# then
+#	dfcounter=0
+#	IFS=$':'
+#	for dffile in $MIMEAPPSFILES
+#	do
+#		dfgroup=""
+#		dfdefault=""
+#		dfadded=""
+#		dfremoved=""
+#		while IFS=$'= \t' read dfkey dfvalue
+#		do
+#			case $dfkey in
+#				'[Default')
+#					[ "$dfvalue" == "Applications]" ] && dfgroup=default
+#					;;
+#				'[Added')
+#					[ "$dfvalue" == "Associations]" ] && dfgroup=added
+#					;;
+#				'[Removed')
+#					[ "$dfvalue" == "Associations]" ] && dfgroup=removed
+#					;;
+#				*/*)
+#					MIMEAPPS[$((MIMEAPPS_INDEX++))]="$dfkey"
+#					MIMEAPPS[$((MIMEAPPS_INDEX++))]="$dfgroup"
+#					MIMEAPPS[$((MIMEAPPS_INDEX++))]="$dfvalue"
+#					MIMEAPPS[$((MIMEAPPS_INDEX++))]="$dfcounter"
+#					;;
+#			esac
+#		done < "$dffile"
+#		((dfcounter++))
+#	done
+#	MIMEAPPS_LOADED=1
+# fi
+#
+# dfcounter=0
+# dfdesktopfile=""
+# dfblacklist=""
+#
+# dfdefault=""
+# dfadded=""
+# dfremoved=""
+#
+# IFS=$';'	# .desktop IDs separator
+# for (( dfi=0; dfi<MIMEAPPS_INDEX; dfi+=4 ))
+# do
+#	if [ "${MIMEAPPS[dfi]}" == "$1" ]
+#	then
+#		case ${MIMEAPPS[((dfi+1))]} in
+#			default)
+#				dfdefault="${MIMEAPPS[((dfi+2))]}"
+#				;;
+#			added)
+#				dfadded="${MIMEAPPS[((dfi+2))]}"
+#				;;
+#			removed)
+#				dfremoved="${MIMEAPPS[((dfi+2))]}"
+#				;;
+#		esac
+#	fi
+#
+#	if [ "$dfi" -eq "$((MIMEAPPS_INDEX-4))" ] || [ "${MIMEAPPS[((dfi+7))]}" != "$dfcounter" ]
+#	then
+#		dfdefault="$dfdefault;$dfadded"
+#		for dfvalue in $dfdefault
+#		do
+#			[[ "$dfblacklist" =~ (^|;)$dfvalue(;|$) ]] && continue
+#			try_desktop_file_ID $dfvalue && translate_exec && return 0
+#		done
+#		dfblacklist="$dfblacklist;$dfremoved;$dfdefault"	# IDs that have just been tried are blacklisted
+#									# as they failed
+#
+#		((dfcounter++))
+#		dfdefault=""
+#		dfadded=""
+#		dfremoved=""
+#	fi
+# done
+#
+# # Load all possible mimeinfo.cache files if not done yet
+# if [ -z "$MIMEINFO_LOADED" ]
+# then
+#	IFS=$':'
+#	for dfdir in $MIMEINFOCACHEDIRS
+#	do
+#		while IFS=$'= \t' read dfkey dfvalue
+#		do
+#			case $dfkey in
+#				[*)
+#					continue
+#					;;
+#				*/*)
+#					MIMEINFO[$((MIMEINFO_INDEX++))]="$dfkey"
+#					MIMEINFO[$((MIMEINFO_INDEX++))]="$dfvalue"
+#					MIMEINFO[$((MIMEINFO_INDEX++))]="$dfdir"
+#					;;
+#			esac
+#		done < "$dfdir/applications/mimeinfo.cache"
+#	done
+#	MIMEINFO_LOADED=1
+# fi
+#
+# IFS=$';'	# .desktop IDs separator
+# for (( dfi=0; dfi<MIMEINFO_INDEX; dfi+=3 ))
+# do
+#	if [ "${MIMEINFO[dfi]}" == "$1" ]
+#	then
+#		for dfvalue in ${MIMEINFO[((dfi+1))]}
+#		do
+#			[[ "$dfblacklist" =~ (^|;)$dfvalue(;|$) ]] && continue
+#			try_desktop_file_ID $dfvalue ${MIMEINFO[((dfi+2))]} && translate_exec && return 0
+#		done
+#		dfblacklist="$dfblacklist;${MIMEINFO[((dfi+1))]}"	# IDs that have just been tried are blacklisted
+#									# as they failed
+#	fi
+# done
+#
+# return 1
+# }
+
+# =========================================================================================================
+# try_desktop_file_ID function receives one mandatory argument - desktop file ID and the second optional
+# argument - directory to which limit the search of the desktop file.
+# It calls try_desktop_file_name for all possible names for the given ID and returns success if
+# the last one was successful. Otherwise returns failure.
+# =========================================================================================================
+try_desktop_file_ID()
+{
+
+ fidf="$1"
+ fivdf=""
+ while [ "$fidf" != "$fivdf" ]
+ do
+	try_desktop_file_base_name "$fidf" "$2" && return 0
+	fivdf="$fidf"
+	fidf=${fivdf/'-'/'/'}
+ done
+ return 1
+}
+
+# =========================================================================================================
+# try_desktop_file_base_name function receives one mandatory argument - desktop file base name and
+# the second optional argument - directory to which limit the search of the desktop file.
+# It searches for it and calls try_desktop_file_full_name function for each full name to try.
+# It returns success if the last one call was successful. Otherwise returns failure.
+# =========================================================================================================
+try_desktop_file_base_name()
+{
+						# Limit desktop file search path to:
+ bndirectories="$2"				#	- requested directory (the second argument)
+ : ${bndirectories:="$MIMEINFOCACHEDIRS"}	#	- directories where mimeinfo.cache files live (and .desktop files live)
+ : ${bndirectories:="$XDG_DATA_DIRS"}		#	- defaults - this means there are no mimeinfo.cache file
+						#	  (desktop-file-utils package isn't used)
+ IFS=$':'
+ for bndir in $bndirectories
+ do
+	for bndesktopfile in $bndir/applications/$1 $bndir/applications/**/$1
+	do
+		try_desktop_file_full_name $bndesktopfile
+		case $? in
+			0)
+				return 0
+				;;
+			1)
+				continue
+				;;
+			2)
+				break 2	# Break the search if the given ID found but isn't the Application type.
+				;;	# Don't search further as as per the specification the first one found
+					# should be used
+
+		esac
+	done
+ done
+
+ return 1
+}
+
+# =========================================================================================================
+# try_desktop_file_full_name function receives one mandatory argument - desktop file full name.
+# It reads the file, loads Exec, Icon and Terminal fields from it.
+# The function returns:
+#			0 - the file was successfully read and appropriate fields loaded
+#			1 - the file doesn't exist or can't be read
+#			2 - the file is of wrong type
+# =========================================================================================================
+try_desktop_file_full_name()
+{
+
+ [ ! -r $1 ] && return 1
+
+ NAME=""
+ EXEC=""
+ ICON=""
+ TERMINAL=false
+
+ while IFS=$'= \t' read fnkey fnvalue
+ do
+	case $fnkey in
+		'[Desktop')
+			[ "$fnvalue" != "Entry]" ] && break
+			;;
+		\[*)		# As per the specification the Desktop Entry group goes first.
+				# If another group starts then Desktop Entry is over
+			break
+			;;
+		Type)
+			[ "$fnvalue" == Application ] && continue
+			EXEC=""
+			ICON=""
+			TERMINAL=false
+			break
+			;;
+		Name)
+			NAME="$fnvalue"
+			;;
+		Exec)
+			EXEC="$fnvalue"
+			;;
+		Icon)
+			ICON="$fnvalue"
+			;;
+		Terminal)
+			TERMINAL="$fnvalue"
+			;;
+	esac
+ done < "$1"
+ [ -z "$EXEC" ] && return 2
+
+ return 0
+}
+
+# =========================================================================================================
+# search_through_mailcap function receives one mandatory argument - MIME type/subtype.
+# It searches for the given type through mailcap files and returns success if found.
+# Otherwise returns failure.
+# =========================================================================================================
+search_through_mailcap()
+{
+ # For simplicity and performance this function does not honor test and nametemplate fields.
+
+ # Load all possible mailcap files if not done so yet
+ if [ -z "$MAILCAP_LOADED" ]
+ then
+	IFS=$':'
+	for ifile in $MAILCAPFILES
+	do
+		[ ! -r "$ifile" ] && continue
+		IFS=$';'
+		while read itype icommand irest
+		do
+			[ -z "$icommand" ] && continue	# ignore empty lines
+			[[ $itype =~ \# ]] && continue	# ignore comment lines
+			icopious=
+			iterminal=
+			for iparameter in $irest
+			do
+				case "$iparameter" in
+					*([[:space:]])copiousoutput*([[:space:]]))
+						icopious=1
+						;;
+					*([[:space:]])needsterminal*([[:space:]]))
+						iterminal=1
+						;;
+				esac
+			done
+			[ -n "$icopious" ] && iterminal=1	# as the command needs the pager then it
+								# must be run in the terminal
+
+ # Below commands truncate surrounding spaces but they significantly reduce performance of the script!!!
+ # They hopefully are not needed: MIME type/subtype comes without spaces and spaces in the command are safe for the shell
+ #			itype=${itype##+([[:space:]])}
+ #			itype=${itype%%+([[:space:]])}
+ #			icommand=${icommand##+([[:space:]])}
+ #			icommand=${icommand%%+([[:space:]])}
+
+			MAILCAP[$((MAILCAP_INDEX++))]=$itype
+			MAILCAP[$((MAILCAP_INDEX++))]=$icommand
+			MAILCAP[$((MAILCAP_INDEX++))]=$iterminal
+			MAILCAP[$((MAILCAP_INDEX++))]=$icopious
+		done < "$ifile"
+	done
+	MAILCAP_LOADED=1
+ fi
+
+ local tmtype=${1%%/*}
+ local tmbest
+
+ for (( tmi=0; tmi<MAILCAP_INDEX; tmi+=4))
+ do
+	case "${MAILCAP[tmi]}" in
+		"$1" | "$tmtype" | "$tmtype/*" | "$tmtype/plain")	# 'plain' works for text only
+			if [ -z "$tmbest" ]
+			then
+				tmbest=$tmi
+				is_the_best_mailcap_entry "$1" $tmi 0 && break
+				continue
+			fi
+
+			[ -n "${MAILCAP[((tmi+3))]}" ] && continue
+			if [ -n "${MAILCAP[((tmbest+3))]}" ] && [ -z "${MAILCAP[((tmi+3))]}" ]
+			then
+				tmbest=$tmi
+				is_the_best_mailcap_entry "$1" $tmi 1 && break
+				continue
+			fi
+
+			[ -n "${MAILCAP[((tmi+2))]}" ] && continue
+			if [ -n "${MAILCAP[((tmbest+2))]}" ] && [ -z "${MAILCAP[((tmi+2))]}" ]
+			then
+				tmbest=$tmi
+				is_the_best_mailcap_entry "$1" $tmi 2 && break
+				continue
+			fi
+
+			[[ "${MAILCAP[((tmi+1))]}" =~ "%t" ]] && continue
+			if [[ "${MAILCAP[((tmbest+1))]}" =~ "%t" ]] && [[ ! "${MAILCAP[((tmi+1))]}" =~ "%t" ]]
+			then
+				tmbest=$tmi
+				is_the_best_mailcap_entry "$1" $tmi 3 && break
+				continue
+			fi
+
+			[[ ! "${MAILCAP[((tmi+1))]}" =~ "%s" ]] && continue
+			if [[ ! "${MAILCAP[((tmbest+1))]}" =~ "%s" ]] && [[ "${MAILCAP[((tmi+1))]}" =~ "%s" ]]
+			then
+				tmbest=$tmi
+				is_the_best_mailcap_entry "$1" $tmi 4 && break
+				continue
+			fi
+
+			[ "${MAILCAP[tmi]}" != "$1" ] && continue
+			if [ "${MAILCAP[tmbest]}" != "$1" ] && [ "${MAILCAP[tmi]}" == "$1" ]
+			then
+				tmbest=$tmi
+				is_the_best_mailcap_entry "$1" $tmi 5 && break
+				continue
+			fi
+
+			is_the_best_mailcap_entry "$1" $tmi 5 && tmbest=$tmi && break
+
+			;;
+	esac
+ done
+
+ if [ -n "$tmbest" ]
+ then
+	translate_view_command "$1" "$tmbest"
+	return 0
+ fi
+
+ return 1
+}
+
+# =========================================================================================================
+# is_the_best_mailcap_entry function receives three mandatory arguments:
+#	$1 - expected MIME type/subtype;
+#	$2 - index in MAILCAP array of reviewed item
+#	$3 - level of the test (to avoid unnecessary tests)
+# If a test fails then it returns failure. Otherwise returns success.
+# The entry is recognized as the best if the view command:
+#	- does not generate copious output;
+#	- does not require a terminal;
+#	- does not require the MIME type/subtype to be explicitly specified as an argument;
+#	- expects the file name as an argument;
+#	- is setup for exact match of the MIME type/subtype in question;
+#	- expects single argument - the file name.
+# =========================================================================================================
+is_the_best_mailcap_entry()
+{
+ case $3 in
+	0)
+		[ -n "${MAILCAP[(($2+3))]}" ] && return 1
+		;&
+	1)
+		[ -n "${MAILCAP[(($2+2))]}" ] && return 1
+		;&
+	2)
+		[[ "${MAILCAP[(($2+1))]}" =~ "%t" ]] && return 1
+		;&
+	3)
+		[[ ! "${MAILCAP[(($2+1))]}" =~ "%s" ]] && return 1
+		;&
+	4)
+		[ "${MAILCAP[$2]}" != "$1" ] && return 1
+		;&
+	5)
+		ibcommand="${MAILCAP[(($2+1))]}"
+		ibcommand=${ibcommand##+([[:space:]])}
+		ibcommand=${ibcommand%%+([[:space:]])}
+		ibcommand=${ibcommand#*+([[:space:]])}
+		[ "$ibcommand" != "%s" ] && return 1
+		;&
+ esac
+
+ return 0
+}
+
+# =========================================================================================================
+# translate_view_command function receives two mandatory arguments - MIME type/subtype and MAILCAP array index.
+# It simplifies view command found in mailcap files, sets EXEC and ICON variables and returns success.
+# =========================================================================================================
+translate_view_command()
+{
+ # For simplicity and performance this function does not honor quoted strings (this processed by the shell)
+ # and escaped symbols (\%).
+ # It removes field codes %n, %F, %{<parameter>} if any and replaces %t codes with appropriate type/subtype.
+
+ local tvi=$2
+
+ ICON=""
+
+ EXEC=${MAILCAP[((tvi+1))]}
+ EXEC=${EXEC//+(%n|%F|%{*\})/""}
+ EXEC=${EXEC//"%t"/"$1"}
+
+ [[ "$EXEC" != *%s* ]] && EXEC="cat %s | $EXEC"
+
+ [ -n "${MAILCAP[((tvi+3))]}" ] && EXEC="$EXEC | $DEFAULTPAGER"
+ if [ -n "${MAILCAP[((tvi+2))]}" ]
+ then
+	EXEC="$DEFAULTTERMINALCOMMAND '$EXEC'"
+	ICON=utilities-terminal
+ fi
+
+ return 0
+}
+
+# =========================================================================================================
+# translate_exec function receives no arguments.
+# It simplifies command found in Exec key of the .desktop file and returns success.
+# =========================================================================================================
+translate_exec()
+{
+ # For simplicity and performance this function does not honor quoted strings (this processed by the shell),
+ # escaped symbols (%%) and possible %s coincidents.
+ # It removes field codes except %fFuU if any and replaces %fFuU codes with single code of %s.
+
+ EXEC=${EXEC//+(%m|%v|%k|%c|%i|%N|%n|%D|%d)/""}
+ EXEC=${EXEC//+(%f|%F|%u|%U)/"%s"}
+
+ [[ "$EXEC" != *%s* ]] && EXEC="cat %s | $EXEC"
+
+ if [ "$TERMINAL" == "true" ]
+ then
+	EXEC="$DEFAULTTERMINALCOMMAND '$EXEC'"
+	[ -z "$ICON" ] && ICON=utilities-terminal
+ fi
+
+ return 0
+}
+
+# --------------------------------------------------------------------------------------------

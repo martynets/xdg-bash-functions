@@ -1,0 +1,682 @@
+#! /bin/bash
+
+#
+# Icon-functions version 1.0
+#
+# Copyright (C) 2014 Andriy Martynets <martynets@volia.ua>
+#--------------------------------------------------------------------------------------------------------------
+# This file is part of xdg-bash-functions.
+#
+# Xdg-bash-functions is free software: you can redistribute it and/or modify it under the terms of
+# the GNU General Public License as published by the Free Software Foundation,
+# either version 3 of the License, or (at your option) any later version.
+#
+# Xdg-bash-functions is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with xdg-bash-functions.
+# If not, see http://www.gnu.org/licenses/.
+#--------------------------------------------------------------------------------------------------------------
+#
+#
+# Based on freedesktop.org specifications:
+#	Icon Theme Specification version 0.11
+#	Icon Naming Specification version 0.8.90
+#
+# Packages which these functions depend on:
+#	coreutils (mkdir tool - see icon_functions_init function below)
+#	procps (ps tool - used only if lxsession is running, see get_default_icon_theme function below)
+#
+#
+# find_mime_icon, find_apps_icon and find_places_icon are main functions.
+# find_icon_for_mime_type function is the extended version of find_mime_icon function and tries to guess
+# suitable icon name for the given MIME type.
+#
+# Call to icon_functions_init function must precede any other calls and is to setup global variables.
+#
+#
+
+shopt -qs extglob
+
+#--------------------------------------------------------------------------------------------------------------
+# Global variables:
+#--------------------------------------------------------------------------------------------------------------
+#
+#--Start of customizable variables-----------------------------------------------------------------------------
+#
+
+# Set XDG global variables to their defaults if not set
+: ${XDG_CONFIG_HOME:=$HOME/.config}
+: ${XDG_DATA_HOME:=$HOME/.local/share}
+: ${XDG_CONFIG_DIRS:=/etc/xdg}
+: ${XDG_DATA_DIRS:=/usr/local/share:/usr/share}
+
+# Default GTK+ 2.x and 3.x RC file names (hmmm, am not sure about .gtkrc-3.0 but it is mentioned in the documentation)
+: ${GTK2_RC_FILES:="$HOME/.gtkrc-2.0:$HOME/.gtkrc-3.0:/usr/local/etc/gtk-2.0/gtkrc:/etc/gtk-2.0/gtkrc"}
+
+# Default locations for gtk-3.0/settings.ini key files
+GTK3_DIRS="$XDG_CONFIG_HOME:$XDG_CONFIG_DIRS:/etc"
+
+# Icon themes standard locations
+ICONTHEMESBASEDIRS="$HOME/.icons:${XDG_DATA_DIRS//$':'/$'/icons:'}/icons:/usr/share/pixmaps"
+
+# 48 seems to be the best represented in most icon themes but one may prefer 24 or even 16 for better look.
+PREFERRED_ICON_SIZE=48
+PREFERRED_ICON_THEME=gnome
+
+# Default path to Hicolor icon theme MIME types icons
+HICOLORMIMEDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/mimetypes"
+# Default path to Hicolor icon theme Applications icons
+HICOLORAPPSDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/apps"
+# Default path to Hicolor icon theme Places icons
+HICOLORPLACESDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/places"
+
+# These variables are formed by the get_mime_icon_dirs function but here preferred pathes may be set up.
+# Values defined here are used as prefixes - preferred locations.
+# Applications icons search pathes (Hicolor added as prefix to speed up the search process)
+APPSICONDIRS="/usr/share/pixmaps:${HICOLORAPPSDIR}"
+# MIME types icons search pathes
+MIMEICONDIRS=
+# Places icons search pathes
+PLACESICONDIRS=
+
+# Icon functions cache file name
+ICONCACHEFILE="$HOME/.cache/icon-functions.cache"
+
+#
+#--End of customizable variables-------------------------------------------------------------------------------
+
+EXEC=	# Global variable with a command in question for which icon is searched.
+	# The executable name may be used to guess the icon name.
+ICON=	# Global variable with possible icon name to try.
+
+ICONTHEMENAME=			# User selected icon theme name
+
+declare -a ICONTHEMES		# List of all icon themes present in the system
+ICONTHEMES_INDEX=0
+declare -a ICONSSEARCHLIST	# List of indexes (in ICONTHEMES array) of icon themes present in the inheritance tree
+ICONSSEARCHLIST_INDEX=0
+
+declare -a ICONNAMES
+ICONNAMES_INDEX=0
+ICONNAMES_LOADED=
+
+#--------------------------------------------------------------------------------------------------------------
+
+
+# =========================================================================================================
+# icon_functions_init function receives one mandatory argument - flag the cache file is out-of-date (true or false).
+# It initializes global variables and returns success if they were initialized from scratch.
+# It returns failure if global variables were restored from cache file.
+# =========================================================================================================
+icon_functions_init()
+{
+
+ local retvalue=0
+ local iftheme=
+
+ # Ensure the directory of the cache file exists
+ ifcachedir="${ICONCACHEFILE%/*}"
+ [ ! -d "$ifcachedir" ] && mkdir -p "$ifcachedir"
+
+ # Read the cache file
+ if [ -r "$ICONCACHEFILE" ]
+ then
+	IFS=$'\r\n'
+	declare -a iconcache=( $(<"$ICONCACHEFILE") )
+	iftheme="${iconcache[0]}"
+ fi
+
+ get_default_icon_theme
+
+ # If there were changes in the system regenerate lists of icon directories otherwise accept values from the cache file
+ if [ "$1" == "true" ] || [ "$ICONTHEMENAME" != "$iftheme" ] || compare_with_icon_functions ||\
+	compare_with_icon_directories
+ then
+	get_icon_dirs
+
+	# Save icon pathes in the cache file
+	IFS=$'\n\r\t ' # restore default field separator
+	: >"$ICONCACHEFILE"
+	echo ${ICONTHEMENAME} >>"$ICONCACHEFILE"
+	echo ${APPSICONDIRS} >>"$ICONCACHEFILE"
+	echo ${MIMEICONDIRS} >>"$ICONCACHEFILE"
+	echo ${PLACESICONDIRS} >>"$ICONCACHEFILE"
+ else
+	APPSICONDIRS="${iconcache[1]}"
+	MIMEICONDIRS="${iconcache[2]}"
+	PLACESICONDIRS="${iconcache[3]}"
+	retvalue=1
+ fi
+
+ return $retvalue
+}
+
+# =========================================================================================================
+# compare_with_icon_functions function receives no arguments.
+# It gets name of this file (icon-functions) and returns success if it is newer than the cache file.
+# Otherwise it returns failure.
+# =========================================================================================================
+compare_with_icon_functions()
+{
+
+ my_name=$(caller)
+ my_name=${my_name#*+([[:space:]])}
+ [ "$my_name" -nt "$ICONCACHEFILE" ] && return 0
+ return 1
+}
+
+# =========================================================================================================
+# compare_with_icon_directories function receives no arguments.
+# It walks through the list of all icon theme base directories and returns success if any of them is newer
+# than the cache file. Otherwise it returns failure.
+# =========================================================================================================
+compare_with_icon_directories()
+{
+
+ IFS=$':'
+ for cdi in $ICONTHEMESBASEDIRS
+ do
+	[ "$cdi" -nt "$ICONCACHEFILE" ] && return 0
+ done
+ return 1
+}
+
+# =========================================================================================================
+# get_icon_dirs function receives no arguments.
+# It generates lists of all applicable directories where MimeTypes, Applications and Places context icons
+# will be searched for and returns no value.
+# =========================================================================================================
+get_icon_dirs()
+{
+ #
+ # Generate list of all applicable icon themes present in the system:
+ #	ICONTHEMES array with ICONTHEMES_INDEX items present
+ #
+
+ IFS=$':'
+ for iti in $ICONTHEMESBASEDIRS
+ do
+	for ittheme in $iti/*/index.theme
+	do
+		[ ! -r "$ittheme" ] && continue
+		itname=
+		itinherits=
+		itdirectories=
+		while IFS=$'= \t' read itkey itvalue
+		do
+			case $itkey in
+				'[Icon')
+					[ "$itvalue" != "Theme]" ] && break
+					;;
+				\[*)		# As per the specification the Icon Theme group goes first.
+							# If another group starts then Icon Theme group is over.
+					break
+					;;
+				Name)
+					itname="$itvalue"
+					;;
+				Inherits)					# This field contains comma separated list of names
+					itinherits="$itvalue"	# (not directories) of the inherited themes
+					;;
+				Directories)
+					itdirectories="$itvalue"
+					;;
+			esac
+		done < "$ittheme"
+		if [ -n "$itname" ] && [ -n "$itdirectories" ]
+		then
+			itj=${ittheme%/index.theme}
+			ICONTHEMES[ $((ICONTHEMES_INDEX++)) ]="${itj##*/}"
+			ICONTHEMES[ $((ICONTHEMES_INDEX++)) ]="$itname"
+			ICONTHEMES[ $((ICONTHEMES_INDEX++)) ]="$itinherits"
+			ICONTHEMES[ $((ICONTHEMES_INDEX++)) ]="$ittheme"
+		fi
+	done
+ done
+
+ #
+ # Generate list of icon themes present in the inheritance tree:
+ #	ICONSSEARCHLIST array with ICONSSEARCHLIST_INDEX items present
+ #
+
+ # Start the tree with either user selected theme or fall back to PREFERRED_ICON_THEME defined on the top
+ [ -n "$ICONTHEMENAME" ] && search_for_theme_by_dir "$ICONTHEMENAME" || search_for_theme_by_dir "$PREFERRED_ICON_THEME"
+ [ -n "$ICONTHEMEINDEX" ] && ICONSSEARCHLIST[ $((ICONSSEARCHLIST_INDEX++)) ]="$ICONTHEMEINDEX"
+
+ # Follow by the inheritance tree and add unique theme names
+ for(( iti=0; iti<ICONSSEARCHLIST_INDEX; iti++ ))
+ do
+	IFS=$','
+	for itj in ${ICONTHEMES[ ((ICONTHEMEINDEX+2)) ]}
+	do
+		if search_for_theme_by_name "$itj"
+		then
+			for(( itk=0; itk<ICONSSEARCHLIST_INDEX; itk++ )) 
+			do
+				[ "${ICONSSEARCHLIST[ itk ]}" == "$ICONTHEMEINDEX" ] && break
+			done
+			[ "$itk" -eq "$ICONSSEARCHLIST_INDEX" ] && ICONSSEARCHLIST[ $((ICONSSEARCHLIST_INDEX++)) ]="$ICONTHEMEINDEX"
+		fi
+	done
+ done
+
+ # Close the tree by theme named Hicolor as per the specification.
+ # As Hicolor has known directory structure this call replaced with the constants concatenation below
+ # for performance reasons.
+ # search_for_theme_by_name "Hicolor" && ICONSSEARCHLIST[ $((ICONSSEARCHLIST_INDEX++)) ]="$ICONTHEMEINDEX"
+
+ for(( iti=0; iti<ICONSSEARCHLIST_INDEX; iti++ ))
+ do
+	#
+	# For each icon theme in the inheritance tree re-read index.theme file and search for directories
+	# with context of 'MimeTypes' and size of PREFERRED_ICON_SIZE
+	#
+
+	itdir=
+	itsize=
+	itcontext=
+	itmimedirs=
+	itappsdirs=
+	itplacesdirs=
+	while IFS=$'= 	' read itkey itvalue
+	do
+		case $itkey in
+			\[*)		# As per the specification the Icon Theme group goes first.
+					# If another group starts then Icon Theme group is over.
+				if [ -n "$itdir" ] && [[ "$itsize" -eq "$PREFERRED_ICON_SIZE" ]]
+				then
+					case $itcontext in
+						'MimeTypes')
+							itmimedirs="$itmimedirs:$itdir"
+							;;
+						'Applications')
+							itappsdirs="$itappsdirs:$itdir"
+							;;
+						'Places')
+							itplacesdirs="$itplacesdirs:$itdir"
+							;;
+					esac
+				fi
+
+				[ -n "$itvalue" ] && itdir= && continue	# skip subdirs with a space, tab or '='
+
+				itdir="${itkey#*\[}"
+				itdir="${itdir%%\]*}"
+				itsize=
+				itcontext=
+				;;
+			Size)
+				itsize="$itvalue"
+				;;
+			Context)
+				itcontext="$itvalue"
+				;;
+		esac
+	done < "${ICONTHEMES[ ((ICONSSEARCHLIST[ $iti ]+3)) ]}"
+	itmimedirs="${itmimedirs#$':'}"
+	itappsdirs="${itappsdirs#$':'}"
+	itplacesdirs="${itplacesdirs#$':'}"
+
+	#
+	# Check for presence of each found subdirectory in each standard icon theme base directory
+	# and form the final list
+	#
+
+	itdir="${ICONTHEMES[ ${ICONSSEARCHLIST[ $iti ]} ]}"
+	IFS=$':'
+	for itj in $ICONTHEMESBASEDIRS
+	do
+		for itk in $itmimedirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && MIMEICONDIRS="$MIMEICONDIRS:$itl"
+		done
+		for itk in $itappsdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && APPSICONDIRS="$APPSICONDIRS:$itl"
+		done
+		for itk in $itplacesdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && PLACESICONDIRS="$PLACESICONDIRS:$itl"
+		done
+	done
+ done
+
+ # Close the search path by theme named Hicolor as per the specification
+ MIMEICONDIRS="$MIMEICONDIRS:$HICOLORMIMEDIR"
+ PLACESICONDIRS="$PLACESICONDIRS:$HICOLORPLACESDIR"
+ # Applications defaults are set up at top
+ # and Hicolor theme is already added as prefix as applications most likely add custom icons there.
+ # APPSICONDIRS="$APPSICONDIRS:$HICOLORAPPSDIR"
+
+ MIMEICONDIRS=${MIMEICONDIRS#$':'}
+ PLACESICONDIRS=${PLACESICONDIRS#$':'}
+ APPSICONDIRS=${APPSICONDIRS#$':'}	# just for a case - if someone dropped defaults
+}
+
+# =========================================================================================================
+# get_default_icon_theme function receives no arguments.
+# It tries to find out name of the user selected icon theme and sets up ICONTHEMENAME global variable.
+# =========================================================================================================
+get_default_icon_theme()
+{
+# These functions are designed to operate in a desktop-agnostic environment and
+# they don't honor desktop specific XSettings managers (with the exception of lxsession
+# which configuration files are easy to read)
+#
+# ~/.gtkrc for GTK1 - seems it doesn't include icon theme name.
+#
+# <SYSCONFDIR>/gtk-2.0/gtkrc and ~/.gtkrc-2.0 for GTK+ 2.x (<SYSCONFDIR> defaults to /usr/local/etc).
+# an RC file may include an include statement, e.g.:
+#	include "/usr/share/themes/SomeTheme/gtk-2.0/gtkrc"
+# RC file may contain:
+#	gtk-icon-theme-name = "Tango"
+#
+# GTK2_RC_FILES is a colon separated list of RC files to be used instead of the default ones
+# KDE most likely sets up this variable
+#
+#
+# GTK+ 3.x settings are stored in key files settings.ini located in the following directories:
+#	/etc/gtk-3.0
+#	$XDG_CONFIG_DIRS/gtk-3.0
+#	$XDG_CONFIG_HOME/gtk-3.0
+# The key file may contain:
+#	[Settings]
+#	gtk-fallback-icon-theme = gnome
+#	gtk-icon-theme-name = Fog
+#
+#
+# Note:
+#	- gtk-icon-theme-name key contains the directory name instead of the theme name for both GTK+ 2.x and 3.x
+#	- If multiple instances of gtk-icon-theme-name key present either in the same file or in included ones
+#	  the last one wins.
+# 	- RC or key file may contain gtk-theme-name key which refers to a theme which sets up the icon theme
+#	  (e.g. Lubuntu-default). This one wins as it is the last one read (theme file is read thereafter).
+#	  XSettings manager may override this theme defined icon theme setting as it provides GTK+ subsystem
+#	  with icon theme name later.
+
+
+ # First check lxsession configuration files
+ sessionname=
+ if [ -n "$_LXSESSION_PID" ]
+ then
+	IFS=$' 	'
+	lxsession=$(ps e --pid $_LXSESSION_PID -o args=)
+	diflag=
+	for dii in $lxsession
+	do
+		[ "$dii" == "-s" ] && diflag=1 && continue
+		[ -n "$diflag" ] && [ -z "$dii" ] && continue
+		[ -n "$diflag" ] && sessionname="$dii" && break
+	done
+	: ${sessionname:="LXDE"}	# fallback to the default lxsession session name
+
+	IFS=$':'
+	for dii in $XDG_CONFIG_HOME $XDG_CONFIG_DIRS
+	do
+		dii="$dii/lxsession/$sessionname/desktop.conf"
+		if [ -r "$dii" ]
+		then
+			while IFS=$'= \t' read dikey divalue
+			do
+				[ "$dikey" == "sNet/IconThemeName" ] && ICONTHEMENAME="$divalue" && break 2
+			done < "$dii"
+		fi
+	done
+ fi
+
+ # Next check GTK+ 2.x RC files.
+ if [ -z "$ICONTHEMENAME" ]
+ then
+	IFS=$':'
+	for dii in $GTK2_RC_FILES
+	do
+		read_rc_file "$dii"
+		[ -n "$ICONTHEMENAME" ] && break
+	done
+ fi
+
+ # And finally check GTK+ 3.x key files
+ if [ -z "$ICONTHEMENAME" ]
+ then
+	IFS=$':'
+	for dii in $GTK3_DIRS
+	do
+		read_key_file "$dii/gtk-3.0/settings.ini"
+		[ -n "$ICONTHEMENAME" ] && break
+	done
+ fi
+
+ # QT seems has no icon theme setting in its configuration files
+}
+
+# =========================================================================================================
+# read_rc_file function receives one mandatory argument - GTK+ 2.x RC file full name.
+# It gets the icon theme name from the file and recursively calls itself for included files if any.
+# =========================================================================================================
+read_rc_file()
+{
+
+ ((recursion_counter++))
+
+ # Limit recursion to 4 levels deep to prevent endless loop if a file includes itself or so...
+ if [[ $recursion_counter < 5 ]] && [ -r "$1" ]
+ then
+	while IFS=$'= \t' read dikey divalue
+	do
+		case $dikey in
+			include)
+				divalue="${divalue#\"}"
+				read_rc_file "${divalue%\"}"
+				;;
+			gtk-icon-theme-name)
+				divalue="${divalue#\"}"
+				ICONTHEMENAME="${divalue%\"}"
+				;;
+		esac
+	done < "$1"
+ fi
+
+ ((recursion_counter--))
+}
+
+# =========================================================================================================
+# read_key_file function receives one mandatory argument - GTK+ 3.x key file full name.
+# It gets the icon theme name from the file if any.
+# =========================================================================================================
+read_key_file()
+{
+ if [ -r "$1" ]
+ then
+	kfflag=
+	while IFS=$'= \t' read kfkey kfvalue
+	do
+		case $kfkey in
+			'[Settings]')
+				kfflag=1
+				;;
+			\[*)
+				kfflag=
+				;;
+			gtk-icon-theme-name)
+				[ -n "$kfflag" ] && ICONTHEMENAME="$kfvalue"
+				;;
+		esac
+	done < "$1"
+ fi
+}
+
+# =========================================================================================================
+# search_for_theme_by_dir function receives one mandatory argument - icon theme directory.
+# It searches for it through the array and sets ICONTHEMEINDEX with the index and returns success if found.
+# Otherwise it returns failure.
+# =========================================================================================================
+search_for_theme_by_dir()
+{
+ ICONTHEMEINDEX=
+ for (( sti=0; sti<ICONTHEMES_INDEX; sti+=4 ))
+ do
+	[ "${ICONTHEMES[sti]}" == "$1" ] && ICONTHEMEINDEX="$sti" && return 0
+ done
+ return 1
+}
+
+# =========================================================================================================
+# search_for_theme_by_dir function receives one mandatory argument - icon theme name.
+# It searches for it through the array and sets ICONTHEMEINDEX with the index and returns success if found.
+# Otherwise it returns failure.
+# =========================================================================================================
+search_for_theme_by_name()
+{
+ ICONTHEMEINDEX=
+ for (( sti=0; sti<ICONTHEMES_INDEX; sti+=4 ))
+ do
+	[ "${ICONTHEMES[ $((sti+1)) ]}" == "$1" ] && ICONTHEMEINDEX="$sti" && return 0
+ done
+ return 1
+}
+
+# =========================================================================================================
+# find_icon_for_mime_type function receives one mandatory argument - MIME type/subtype.
+# It searches for suitable icon file and sets up ICON variable with it's full name and returns success if found.
+# Otherwise it returns failure.
+# =========================================================================================================
+find_icon_for_mime_type()
+{
+
+ # Check for standard icon name first
+ find_mime_icon "${1//$'/'/$'-'}" && return 0
+
+ # Next fall back to applications installed customizations:
+
+ # Load all possible icon names and generic icon names if not done so yet
+ if [ -z "$ICONNAMES_LOADED" ]
+ then
+	fitfiles="$XDG_DATA_HOME/mime/icons:${XDG_DATA_DIRS//$':'/$'/mime/icons:'}/mime/icons:$XDG_DATA_HOME/mime/generic-icons:${XDG_DATA_DIRS//$':'/$'/mime/generic-icons:'}/mime/generic-icons"
+	IFS=$':'
+	for fitfile in $fitfiles
+	do
+		[ ! -r "$fitfile" ] && continue
+		while IFS=$':' read fitmime fiticon
+		do
+			ICONNAMES[$((ICONNAMES_INDEX++))]=$fitmime
+			ICONNAMES[$((ICONNAMES_INDEX++))]=$fiticon
+		done < "$fitfile"
+	done
+	ICONNAMES_LOADED=1
+ fi
+
+ # Look for icon name set up for the given MIME type
+ local fiti=0
+ while [ "$fiti" -lt "$ICONNAMES_INDEX" ]
+ do
+	[ "${ICONNAMES[fiti]}" == "$1" ] && find_mime_icon ${ICONNAMES[((fiti+1))]} && return 0
+	(( fiti+=2 ))
+ done
+
+ # Next look for a generic icon for given type
+ case $1 in
+	*/*script*)
+		find_mime_icon "text-x-script" && return 0
+		;;
+	*/*font*)
+		find_mime_icon "font-x-generic" && return 0
+		;;
+	*/*zip*)
+		find_mime_icon "package-x-generic" && return 0
+		;;
+	application/*)
+		# Skip this match to handle it below...
+		;;
+	*/*)
+		find_mime_icon "${1%%/*}-x-generic" && return 0
+		;;
+ esac
+
+ # If still nothing found try to use an icon for viewing application:
+ # If there is an icon for viewing application try to use it
+ if [ -n "$ICON" ]
+ then
+	[ -r "$ICON" ] && return 0
+	find_apps_icon "$ICON" && return 0
+ fi
+ # Use the executable name as the icon name
+ fitexec="${EXEC##+([[:space:]])}"
+ fitexec="${fitexec%%[[:space:]]*}"
+ fitexec="${fitexec##*/}"
+ find_apps_icon "$fitexec" && return 0
+
+ # Use the default icon as the last resort
+ find_mime_icon "application-x-executable" && return 0
+
+ return 1
+}
+
+# =========================================================================================================
+# find_mime_icon function receives one mandatory argument - supposed icon base name in MimeTypes context.
+# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
+# Otherwise it returns failure.
+# =========================================================================================================
+find_mime_icon()
+{
+
+ IFS=$':'
+ for midir in $MIMEICONDIRS
+ do
+	for miext in ".png" ".svg" ".xpm"
+	do
+		mifile="$midir/$1$miext"
+		[ -r "$mifile" ] && ICON="$mifile" && return 0
+	done
+ done
+
+ return 1
+}
+
+# =========================================================================================================
+# find_apps_icon function receives one mandatory argument - supposed icon base name in Applications context.
+# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
+# Otherwise it returns failure.
+# =========================================================================================================
+find_apps_icon()
+{
+
+ IFS=$':'
+ for aidir in $APPSICONDIRS
+ do
+	for aiext in ".png" ".svg" ".xpm"
+	do
+		aifile="$aidir/$1$aiext"
+		[ -r "$aifile" ] && ICON="$aifile" && return 0
+	done
+ done
+
+ return 1
+}
+
+# =========================================================================================================
+# find_places_icon function receives one mandatory argument - supposed icon base name in Places context.
+# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
+# Otherwise it returns failure.
+# =========================================================================================================
+find_places_icon()
+{
+
+ IFS=$':'
+ for pidir in $PLACESICONDIRS
+ do
+	for piext in ".png" ".svg" ".xpm"
+	do
+		pifile="$pidir/$1$piext"
+		[ -r "$pifile" ] && ICON="$pifile" && return 0
+	done
+ done
+
+ return 1
+}
+
+# --------------------------------------------------------------------------------------------
