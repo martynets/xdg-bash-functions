@@ -211,13 +211,13 @@ Example script for MIME functions - prints info for files in working directory:
 . "${0%/*}/mime-functions"              # Source xdg-bash-functions
 mime_functions_init true                # Initialize xdg-bash-functions
 
-IFS=$'\n'
-declare -a BROWSINGDIR=( $( file --separator $'\n' --dereference --no-pad --mime-type *) )
+shopt -qs nullglob
+declare -a BROWSINGDIR
+mapfile -t BROWSINGDIR < <(file --separator $'\n' --dereference --no-pad --mime-type * 2>/dev/null)
 
 for (( i=0; i<${#BROWSINGDIR[*]}; i+=2))
 do
     file=${BROWSINGDIR[i]}
-    [ "$file" == "*" ] && break
     type=${BROWSINGDIR[((i+1))]:1}      # Truncate leading space
     if [ "$type" != "inode/directory" ]
     then
@@ -337,7 +337,7 @@ configuration file:
 # GTK3_DIRS="$XDG_CONFIG_HOME:$XDG_CONFIG_DIRS:/etc"
 #
 # Icon themes standard locations
-# ICONTHEMESBASEDIRS="$HOME/.icons:${XDG_DATA_DIRS//':'/'/icons:'}/icons:/usr/share/pixmaps"
+# ICONTHEMESBASEDIRS="$HOME/.icons:${XDG_DATA_DIRS//':'/$'/icons:'}/icons:/usr/share/pixmaps"
 #
 # Size 48 seems to be the best represented in most icon themes but one may
 # prefer 24 or even 16 for better look.

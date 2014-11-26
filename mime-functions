@@ -144,8 +144,9 @@ mime_functions_init()
  [ "$1" == "true" ] && cache_is_obsolete=1	# this is not really necessary as icon_functions_init
 						# will confirm the cache file is out-of-date
 
+ IFS=$'\n\r\t ' # restore default field separator
  # Generate list of all applicable directories for MIMEAPPS files:
- ipathes=$XDG_CONFIG_HOME:$XDG_DATA_HOME/applications:$XDG_CONFIG_DIRS:${XDG_DATA_DIRS//$':'/$'/applications:'}/applications
+ ipathes="$XDG_CONFIG_HOME:$XDG_DATA_HOME/applications:$XDG_CONFIG_DIRS:${XDG_DATA_DIRS//':'/$'/applications:'}/applications"
 
  # Generate list of all applicable filenames for MIMEAPPS files and test all these files and their directories whether
  # they were changed since last run:
@@ -578,7 +579,7 @@ try_desktop_file_ID()
  do
 	try_desktop_file_base_name "$fidf" "$2" && return 0
 	fivdf="$fidf"
-	fidf=${fivdf/'-'/'/'}
+	fidf=${fivdf/'-'/$'/'}
  done
  return 1
 }

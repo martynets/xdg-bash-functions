@@ -59,7 +59,7 @@ shopt -qs extglob
 GTK3_DIRS="$XDG_CONFIG_HOME:$XDG_CONFIG_DIRS:/etc"
 
 # Icon themes standard locations
-ICONTHEMESBASEDIRS="$HOME/.icons:${XDG_DATA_DIRS//$':'/$'/icons:'}/icons:/usr/share/pixmaps"
+ICONTHEMESBASEDIRS="$HOME/.icons:${XDG_DATA_DIRS//':'/$'/icons:'}/icons:/usr/share/pixmaps"
 
 # 48 seems to be the best represented in most icon themes but one may prefer 24 or even 16 for better look.
 PREFERRED_ICON_SIZE=48
@@ -280,7 +280,7 @@ get_icon_dirs()
 	itmimedirs=
 	itappsdirs=
 	itplacesdirs=
-	while IFS=$'= 	' read itkey itvalue
+	while IFS=$'= \t' read itkey itvalue
 	do
 		case $itkey in
 			\[*)		# As per the specification the Icon Theme group goes first.
@@ -404,7 +404,7 @@ get_default_icon_theme()
  sessionname=
  if [ -n "$_LXSESSION_PID" ]
  then
-	IFS=$' 	'
+	IFS=$' \t'
 	lxsession=$(ps e --pid $_LXSESSION_PID -o args=)
 	diflag=
 	for dii in $lxsession
@@ -549,14 +549,15 @@ find_icon_for_mime_type()
 {
 
  # Check for standard icon name first
- find_mime_icon "${1//$'/'/$'-'}" && return 0
+ find_mime_icon "${1//'/'/$'-'}" && return 0
 
  # Next fall back to applications installed customizations:
 
  # Load all possible icon names and generic icon names if not done so yet
  if [ -z "$ICONNAMES_LOADED" ]
  then
-	fitfiles="$XDG_DATA_HOME/mime/icons:${XDG_DATA_DIRS//$':'/$'/mime/icons:'}/mime/icons:$XDG_DATA_HOME/mime/generic-icons:${XDG_DATA_DIRS//$':'/$'/mime/generic-icons:'}/mime/generic-icons"
+	IFS=$'\n\r\t ' # restore default field separator
+	fitfiles="$XDG_DATA_HOME/mime/icons:${XDG_DATA_DIRS//':'/$'/mime/icons:'}/mime/icons:$XDG_DATA_HOME/mime/generic-icons:${XDG_DATA_DIRS//':'/$'/mime/generic-icons:'}/mime/generic-icons"
 	IFS=$':'
 	for fitfile in $fitfiles
 	do
@@ -574,7 +575,7 @@ find_icon_for_mime_type()
  local fiti=0
  while [ "$fiti" -lt "$ICONNAMES_INDEX" ]
  do
-	[ "${ICONNAMES[fiti]}" == "$1" ] && find_mime_icon ${ICONNAMES[((fiti+1))]} && return 0
+	[ "${ICONNAMES[fiti]}" == "$1" ] && find_mime_icon "${ICONNAMES[((fiti+1))]}" && return 0
 	(( fiti+=2 ))
  done
 
