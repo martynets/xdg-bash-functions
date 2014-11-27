@@ -314,9 +314,11 @@ get_command_for_type()
 }
 
 # =========================================================================================================
-# find_command_for_type function receives one mandatory argument - MIME type/subtype.
-# It calls find_desktop_file and search_through_mailcap and returns success if any of them was successful.
-# Otherwise returns failure.
+# find_command_for_type function receives one mandatory argument - MIME type/subtype and optional flag as
+# the second argument.
+# It calls find_desktop_file and falls back to search_through_mailcap function if the former call wasn't
+# successful and only if the optional flag wasn't passed. It returns success if any of the calls was
+# successful. Otherwise returns failure.
 # =========================================================================================================
 find_command_for_type()
 {
@@ -347,7 +349,10 @@ find_command_for_type()
 	[ "${MIMEALIASES[cti]}" == "$1" ] && find_command_for_type ${MIMEALIASES[((cti+1))]} && return 0 # !!! recursion
  done
 
- search_through_mailcap $1 && return 0
+ # Below code possibly duplicates search for text/plain type...
+ [ "$1" != "text/plain" ] && [[ "$1" =~ ^text/ ]] && find_command_for_type "text/plain" "1" && return 0 # !!! recursion
+
+ [ -z "$2" ] && search_through_mailcap $1 && return 0
 
  return 1
 }
@@ -859,6 +864,7 @@ translate_view_command()
  EXEC=${MAILCAP[((tvi+1))]}
  EXEC=${EXEC//+(%n|%F|%{*\})/""}
  EXEC=${EXEC//"%t"/"$1"}
+ EXEC=${EXEC//+(\'%s\'|\"%s\")/"%s"}
 
  [[ "$EXEC" != *%s* ]] && EXEC="cat %s | $EXEC"
 
@@ -884,6 +890,7 @@ translate_exec()
 
  EXEC=${EXEC//+(%m|%v|%k|%c|%i|%N|%n|%D|%d)/""}
  EXEC=${EXEC//+(%f|%F|%u|%U)/"%s"}
+ EXEC=${EXEC//+(\'%s\'|\"%s\")/"%s"}
 
  [[ "$EXEC" != *%s* ]] && EXEC="cat %s | $EXEC"
 

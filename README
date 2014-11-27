@@ -185,16 +185,20 @@ return any specific values.
 
 Core functionality of this module is provided by find_command_for_type function.
 It receives one mandatory argument - MIME type/subtype and finds the viewing
-command for a file of the given MIME type and the icon file to represent it. The
+command for a file of the given MIME type and the icon to represent it. The
 function tries to get necessary information from the desktop file of the viewing
 application which is expected to be listed in either mimeapps.list or
-mimeinfo.cache files. If not it falls back to mailcap files. If the function
-finds the viewing application it returns success, otherwise failure. On success
-it sets EXEC, ICON and NAME variables. The EXEC variable contains the viewing
-command where %s field represents position of the target file name. The ICON and
-NAME variables are optionally set with values from corresponding fields in the
-desktop file if such one is read. Otherwise these variables remain intact. They
-may contain the icon name of the application and its name respectively.
+mimeinfo.cache files. If not it falls back to mailcap files. The latter can be
+disabled by optional flag - any value passed to the function as the second
+argument. If the function finds the viewing application it returns success,
+otherwise failure. On success it sets EXEC and optionally ICON and NAME
+variables. The EXEC variable contains the viewing command where %s field
+represents position of the target file name. The field is always unquoted and
+must be replaced with quoted file name. The ICON and NAME variables are
+optionally set with values from corresponding fields in the desktop file if such
+one was read and such fields are present in it. Otherwise these variables remain
+intact. If set they contain the icon name of the application and its name
+respectively.
 
 The get_command_for_type function extends the above one. It receives the same
 argument and tries to get the same information from the cache. The function

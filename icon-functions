@@ -245,13 +245,17 @@ get_icon_dirs()
  [ -n "$ICONTHEMENAME" ] && search_for_theme_by_dir "$ICONTHEMENAME" || search_for_theme_by_dir "$PREFERRED_ICON_THEME"
  [ -n "$ICONTHEMEINDEX" ] && ICONSSEARCHLIST[ $((ICONSSEARCHLIST_INDEX++)) ]="$ICONTHEMEINDEX"
 
+
  # Follow by the inheritance tree and add unique theme names
  for(( iti=0; iti<ICONSSEARCHLIST_INDEX; iti++ ))
  do
 	IFS=$','
 	for itj in ${ICONTHEMES[ ((ICONTHEMEINDEX+2)) ]}
 	do
-		if search_for_theme_by_name "$itj"
+		# Some weird icon themes (e.g CrunchBang) list directory names instead of theme names in the Inherits field.
+		# Thus we check both...
+		# Some of them (e.g CrunchBang) list Hicolor in the Inherits field. Hmmm, am not sure whether it worth to take care of this...
+		if search_for_theme_by_name "$itj" || search_for_theme_by_dir "$itj"
 		then
 			for(( itk=0; itk<ICONSSEARCHLIST_INDEX; itk++ )) 
 			do
