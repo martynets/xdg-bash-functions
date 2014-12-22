@@ -5,7 +5,7 @@ See the end of the file for license conditions.
 This directory contains the xdg-bash-functions version 1.0.
 
 The xdg-bash-functions is the set of bash shell functions designed in
-accordance with freedesktop.org specifications with the goal to be desktop 
+accordance with freedesktop.org specifications with the goal to be desktop
 independent and don't rely on any desktop specific configuration managers.
 These functions process system wide and user specific configuration files to
 get requested information. But they do not provide functionality to alter any
@@ -44,7 +44,7 @@ following packages:
     coreutils - mkdir tool is called to create cache files subdirectory tree if
         it doesn't exist. This directory tree is customizable and defaults to
         $HOME/.cache/ which most likely already exists on your system.
-    procps - ps tool is used only in case if lxsession is running (LXDE's 
+    procps - ps tool is used only in case if lxsession is running (LXDE's
         Xsettings manager) to try to get user preferred icon theme. If that is
         not successful GTK+ settings are checked next.
 
@@ -92,7 +92,7 @@ server:
 Installation
 ------------
 
-This package does not require any kind of installation. The files can be copied 
+This package does not require any kind of installation. The files can be copied
 to any convenient location. But note that icon-functions file is sourced by
 mime-functions and both of them must be located in the same directory.
 
@@ -101,8 +101,8 @@ Icon Functions Usage
 
 The icon-functions file can be sourced by a script which needs to resolve an
 icon name to the fully qualified icon file name from the user selected icon
-theme. Current version of the package supports MimeTypes, Applications and
-Places contexts.
+theme. Current version of the package supports MimeTypes, Applications, Places,
+Devices and Actions contexts.
 
 The icon_functions_init function must be called first to initialize internal
 variables. It expects single mandatory argument which forces to regenerate
@@ -117,12 +117,12 @@ of the variables were restored from the cache file. Once the function
 regenerates values of internal variables they are immediately flushed to the
 cache file.
 
-The find_mime_icon, find_apps_icon and find_places_icon functions can be called
-to resolve an icon name to the fully qualified icon file name in their
-respective contexts. Each of these functions receives single mandatory argument
-- the icon name. If the icon file found its fully qualified name is assigned to
-ICON variable and the functions return success. Othewise the functions return
-failure.
+The find_mime_icon, find_apps_icon, find_places_icon, find_devices_icon and
+find_actions_icon functions can be called to resolve an icon name to the fully
+qualified icon file name in their respective contexts. Each of these functions
+receives single mandatory argument - the icon name. If the icon file found its
+fully qualified name is assigned to ICON variable and the functions return
+success. Othewise the functions return failure.
 
 The find_icon_for_mime_type function extends find_mime_icon function
 functionality. It receives MIME type as the argument, tries standard name for
@@ -356,6 +356,10 @@ configuration file:
  HICOLORAPPSDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/apps"
 # Default path to Hicolor icon theme Places icons
  HICOLORPLACESDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/places"
+# Default path to Hicolor icon theme Actions icons
+ HICOLORACTIONSDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/actions"
+# Default path to Hicolor icon theme Devices icons
+ HICOLORDEVICESDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/devices"
 #
 # These variables are formed by the get_mime_icon_dirs function but here
 # preferred pathes may be set up.
@@ -367,6 +371,10 @@ configuration file:
 # MIMEICONDIRS=
 # Places icons search pathes
 # PLACESICONDIRS=
+# Actions icons search pathes
+# ACTIONSICONDIRS=
+# Devices icons search pathes
+# DEVICESICONDIRS=
 #
 # Icon functions cache file name
 # ICONCACHEFILE="$HOME/.cache/icon-functions.cache"

@@ -71,6 +71,10 @@ HICOLORMIMEDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON
 HICOLORAPPSDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/apps"
 # Default path to Hicolor icon theme Places icons
 HICOLORPLACESDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/places"
+# Default path to Hicolor icon theme Actions icons
+HICOLORACTIONSDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/actions"
+# Default path to Hicolor icon theme Devices icons
+HICOLORDEVICESDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/devices"
 
 # These variables are formed by the get_mime_icon_dirs function but here preferred pathes may be set up.
 # Values defined here are used as prefixes - preferred locations.
@@ -80,6 +84,10 @@ APPSICONDIRS="/usr/share/pixmaps:${HICOLORAPPSDIR}"
 MIMEICONDIRS=
 # Places icons search pathes
 PLACESICONDIRS=
+# Actions icons search pathes
+ACTIONSICONDIRS=
+# Devices icons search pathes
+DEVICESICONDIRS=
 
 # Icon functions cache file name
 ICONCACHEFILE="$HOME/.cache/icon-functions.cache"
@@ -143,10 +151,14 @@ icon_functions_init()
 	echo ${APPSICONDIRS} >>"$ICONCACHEFILE"
 	echo ${MIMEICONDIRS} >>"$ICONCACHEFILE"
 	echo ${PLACESICONDIRS} >>"$ICONCACHEFILE"
+	echo ${ACTIONSICONDIRS} >>"$ICONCACHEFILE"
+	echo ${DEVICESICONDIRS} >>"$ICONCACHEFILE"
  else
 	APPSICONDIRS="${iconcache[1]}"
 	MIMEICONDIRS="${iconcache[2]}"
 	PLACESICONDIRS="${iconcache[3]}"
+	ACTIONSICONDIRS="${iconcache[4]}"
+	DEVICESICONDIRS="${iconcache[5]}"
 	retvalue=1
  fi
 
@@ -257,7 +269,7 @@ get_icon_dirs()
 		# Some of them (e.g CrunchBang) list Hicolor in the Inherits field. Hmmm, am not sure whether it worth to take care of this...
 		if search_for_theme_by_name "$itj" || search_for_theme_by_dir "$itj"
 		then
-			for(( itk=0; itk<ICONSSEARCHLIST_INDEX; itk++ )) 
+			for(( itk=0; itk<ICONSSEARCHLIST_INDEX; itk++ ))
 			do
 				[ "${ICONSSEARCHLIST[ itk ]}" == "$ICONTHEMEINDEX" ] && break
 			done
@@ -275,7 +287,7 @@ get_icon_dirs()
  do
 	#
 	# For each icon theme in the inheritance tree re-read index.theme file and search for directories
-	# with context of 'MimeTypes' and size of PREFERRED_ICON_SIZE
+	# with context of interest (e.g. 'MimeTypes') and size of PREFERRED_ICON_SIZE
 	#
 
 	itdir=
@@ -284,6 +296,8 @@ get_icon_dirs()
 	itmimedirs=
 	itappsdirs=
 	itplacesdirs=
+	itactionsdirs=
+	itdevicesdirs=
 	while IFS=$'= \t' read itkey itvalue
 	do
 		case $itkey in
@@ -300,6 +314,12 @@ get_icon_dirs()
 							;;
 						'Places')
 							itplacesdirs="$itplacesdirs:$itdir"
+							;;
+						'Actions')
+							itactionsdirs="$itactionsdirs:$itdir"
+							;;
+						'Devices')
+							itdevicesdirs="$itdevicesdirs:$itdir"
 							;;
 					esac
 				fi
@@ -322,6 +342,8 @@ get_icon_dirs()
 	itmimedirs="${itmimedirs#$':'}"
 	itappsdirs="${itappsdirs#$':'}"
 	itplacesdirs="${itplacesdirs#$':'}"
+	itactionsdirs="${itactionsdirs#$':'}"
+	itdevicesdirs="${itdevicesdirs#$':'}"
 
 	#
 	# Check for presence of each found subdirectory in each standard icon theme base directory
@@ -347,19 +369,39 @@ get_icon_dirs()
 			itl="$itj/$itdir/$itk"
 			[ -d "$itl" ] && PLACESICONDIRS="$PLACESICONDIRS:$itl"
 		done
+		for itk in $itactionsdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && ACTIONSICONDIRS="$ACTIONSICONDIRS:$itl"
+		done
+		for itk in $itdevicesdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && DEVICESICONDIRS="$DEVICESICONDIRS:$itl"
+		done
 	done
  done
 
- # Close the search path by theme named Hicolor as per the specification
+ # Close the search path by theme named Hicolor as per the specification.
+ # Applications defaults are set up at top and Hicolor theme is already added as prefix
+ # as applications most likely add custom icons there.
+ # APPSICONDIRS="$APPSICONDIRS:$HICOLORAPPSDIR"
  MIMEICONDIRS="$MIMEICONDIRS:$HICOLORMIMEDIR"
  PLACESICONDIRS="$PLACESICONDIRS:$HICOLORPLACESDIR"
- # Applications defaults are set up at top
- # and Hicolor theme is already added as prefix as applications most likely add custom icons there.
- # APPSICONDIRS="$APPSICONDIRS:$HICOLORAPPSDIR"
+ ACTIONSICONDIRS="$ACTIONSICONDIRS:$HICOLORACTIONSDIR"
+ DEVICESICONDIRS="$DEVICESICONDIRS:$HICOLORDEVICESDIR"
 
+ APPSICONDIRS=${APPSICONDIRS#$':'}	# just for a case - if someone dropped defaults
  MIMEICONDIRS=${MIMEICONDIRS#$':'}
  PLACESICONDIRS=${PLACESICONDIRS#$':'}
- APPSICONDIRS=${APPSICONDIRS#$':'}	# just for a case - if someone dropped defaults
+ ACTIONSICONDIRS=${ACTIONSICONDIRS#$':'}
+ DEVICESICONDIRS=${DEVICESICONDIRS#$':'}
+
+#echo "Applications: $APPSICONDIRS" >&2
+#echo "MimeTypes:    $MIMEICONDIRS" >&2
+#echo "Places:       $PLACESICONDIRS" >&2
+#echo "Actions:      $ACTIONSICONDIRS" >&2
+#echo "Devices:      $DEVICESICONDIRS" >&2
 }
 
 # =========================================================================================================
@@ -678,6 +720,48 @@ find_places_icon()
 	do
 		pifile="$pidir/$1$piext"
 		[ -r "$pifile" ] && ICON="$pifile" && return 0
+	done
+ done
+
+ return 1
+}
+
+# =========================================================================================================
+# find_actions_icon function receives one mandatory argument - supposed icon base name in Actions context.
+# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
+# Otherwise it returns failure.
+# =========================================================================================================
+find_actions_icon()
+{
+
+ IFS=$':'
+ for aidir in $ACTIONSICONDIRS
+ do
+	for aiext in ".png" ".svg" ".xpm"
+	do
+		aifile="$aidir/$1$aiext"
+		[ -r "$aifile" ] && ICON="$aifile" && return 0
+	done
+ done
+
+ return 1
+}
+
+# =========================================================================================================
+# find_devices_icon function receives one mandatory argument - supposed icon base name in Devices context.
+# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
+# Otherwise it returns failure.
+# =========================================================================================================
+find_devices_icon()
+{
+
+ IFS=$':'
+ for didir in $DEVICESICONDIRS
+ do
+	for diext in ".png" ".svg" ".xpm"
+	do
+		difile="$didir/$1$diext"
+		[ -r "$difile" ] && ICON="$difile" && return 0
 	done
  done
 
