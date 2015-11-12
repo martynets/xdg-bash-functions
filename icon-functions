@@ -1,9 +1,9 @@
 #! /bin/bash
 
 #
-# Icon-functions version 1.0
+# Xdg-bash-functions version 1.1
 #
-# Copyright (C) 2014 Andriy Martynets <martynets@volia.ua>
+# Copyright (C) 2014, 2015 Andriy Martynets <martynets@volia.ua>
 #--------------------------------------------------------------------------------------------------------------
 # This file is part of xdg-bash-functions.
 #
@@ -39,77 +39,80 @@
 
 shopt -qs extglob
 
+IFS=$'\n\r\t ' # restore default field separator
+
 #--------------------------------------------------------------------------------------------------------------
 # Global variables:
 #--------------------------------------------------------------------------------------------------------------
 #
 #--Start of customizable variables-----------------------------------------------------------------------------
 #
-
+#
 # Set XDG global variables to their defaults if not set
 : ${XDG_CONFIG_HOME:=$HOME/.config}
 : ${XDG_DATA_HOME:=$HOME/.local/share}
 : ${XDG_CONFIG_DIRS:=/etc/xdg}
 : ${XDG_DATA_DIRS:=/usr/local/share:/usr/share}
-
+#
 # Default GTK+ 2.x and 3.x RC file names (hmmm, am not sure about .gtkrc-3.0 but it is mentioned in the documentation)
 : ${GTK2_RC_FILES:="$HOME/.gtkrc-2.0:$HOME/.gtkrc-3.0:/usr/local/etc/gtk-2.0/gtkrc:/etc/gtk-2.0/gtkrc"}
-
+#
 # Default locations for gtk-3.0/settings.ini key files
 GTK3_DIRS="$XDG_CONFIG_HOME:$XDG_CONFIG_DIRS:/etc"
-
+#
 # Icon themes standard locations
 ICONTHEMESBASEDIRS="$HOME/.icons:${XDG_DATA_DIRS//':'/$'/icons:'}/icons:/usr/share/pixmaps"
-
+#
 # 48 seems to be the best represented in most icon themes but one may prefer 24 or even 16 for better look.
-PREFERRED_ICON_SIZE=48
-PREFERRED_ICON_THEME=gnome
-
-# Default path to Hicolor icon theme MIME types icons
-HICOLORMIMEDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/mimetypes"
-# Default path to Hicolor icon theme Applications icons
-HICOLORAPPSDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/apps"
-# Default path to Hicolor icon theme Places icons
-HICOLORPLACESDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/places"
-# Default path to Hicolor icon theme Actions icons
-HICOLORACTIONSDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/actions"
-# Default path to Hicolor icon theme Devices icons
-HICOLORDEVICESDIR="/usr/share/icons/hicolor/${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}/devices"
-
-# These variables are formed by the get_mime_icon_dirs function but here preferred pathes may be set up.
-# Values defined here are used as prefixes - preferred locations.
-# Applications icons search pathes (Hicolor added as prefix to speed up the search process)
-APPSICONDIRS="/usr/share/pixmaps:${HICOLORAPPSDIR}"
-# MIME types icons search pathes
-MIMEICONDIRS=
-# Places icons search pathes
-PLACESICONDIRS=
+ICON_SIZE=48
+DEFAULT_ICON_THEME=gnome
+#
+# Variables containing context specific icon directories for the given icon size are formed by
+# the get_icon_dirs function but here preferred pathes may be set up (colon separated).
+# These values are used as prefixes - preferred locations.
+#
 # Actions icons search pathes
-ACTIONSICONDIRS=
+PREFERRED_ACTIONSICONDIRS=
+# Animations icons search pathes
+PREFERRED_ANIMATIONSICONDIRS=
+# Applications icons search pathes
+PREFERRED_APPSICONDIRS="/usr/share/pixmaps"
+# Categories icons search pathes
+PREFERRED_CATEGORIESICONDIRS=
 # Devices icons search pathes
-DEVICESICONDIRS=
-
+PREFERRED_DEVICESICONDIRS=
+# Emblems icons search pathes
+PREFERRED_EMBLEMSICONDIRS=
+# Emotes icons search pathes
+PREFERRED_EMOTESICONDIRS=
+# International icons search pathes
+PREFERRED_INTLICONDIRS=
+# MimeTypes icons search pathes
+PREFERRED_MIMETYPESICONDIRS=
+# Places icons search pathes
+PREFERRED_PLACESICONDIRS=
+# Status icons search pathes
+PREFERRED_STATUSICONDIRS=
+#
 # Icon functions cache file name
 ICONCACHEFILE="$HOME/.cache/icon-functions.cache"
-
+#
 #
 #--End of customizable variables-------------------------------------------------------------------------------
-
-EXEC=	# Global variable with a command in question for which icon is searched.
-	# The executable name may be used to guess the icon name.
-ICON=	# Global variable with possible icon name to try.
-
-ICONTHEMENAME=			# User selected icon theme name
-
-declare -a ICONTHEMES		# List of all icon themes present in the system
-ICONTHEMES_INDEX=0
-declare -a ICONSSEARCHLIST	# List of indexes (in ICONTHEMES array) of icon themes present in the inheritance tree
-ICONSSEARCHLIST_INDEX=0
-
+#
+# Global variable with a command in question for which icon is searched.
+# The executable name may be used to guess the icon name.
+EXEC=
+# Global variable with possible icon name to try.
+ICON=
+# User selected icon theme name
+ICONTHEMENAME=
+#
+# Array of all MIME types and their icons, its index and flag to indicate they are already loaded
 declare -a ICONNAMES
 ICONNAMES_INDEX=0
 ICONNAMES_LOADED=
-
+#
 #--------------------------------------------------------------------------------------------------------------
 
 
@@ -134,31 +137,57 @@ icon_functions_init()
 	IFS=$'\r\n'
 	declare -a iconcache=( $(<"$ICONCACHEFILE") )
 	iftheme="${iconcache[0]}"
+	ifsize="${iconcache[1]}"
  fi
 
  get_default_icon_theme
 
+ # Sanity check of ICONTHEMESBASEDIRS: remove duplicates and keep existing dirs only
+ IFS=$':'
+ ifidirs=
+ for ifi in $ICONTHEMESBASEDIRS
+ do
+	ifi="${ifi%$'/'}"
+	ifi="${ifi//$'//'/$'/'}"
+	[[ "$ifidirs" =~ (^|:)$ifi(:|$) ]] && continue
+	[ -d "$ifi" ] && ifidirs+="$ifi:"
+ done
+ BASEDIRS="$ifidirs"
+
  # If there were changes in the system regenerate lists of icon directories otherwise accept values from the cache file
- if [ "$1" == "true" ] || [ "$ICONTHEMENAME" != "$iftheme" ] || compare_with_icon_functions ||\
-	compare_with_icon_directories
+ if [ "$1" == "true" ] || [ "$ICONTHEMENAME" != "$iftheme" ] || [ "$ICON_SIZE" != "$ifsize" ] ||\
+	compare_with_icon_functions || compare_with_icon_directories
  then
 	get_icon_dirs
 
 	# Save icon pathes in the cache file
 	IFS=$'\n\r\t ' # restore default field separator
 	: >"$ICONCACHEFILE"
-	echo ${ICONTHEMENAME} >>"$ICONCACHEFILE"
-	echo ${APPSICONDIRS} >>"$ICONCACHEFILE"
-	echo ${MIMEICONDIRS} >>"$ICONCACHEFILE"
-	echo ${PLACESICONDIRS} >>"$ICONCACHEFILE"
-	echo ${ACTIONSICONDIRS} >>"$ICONCACHEFILE"
-	echo ${DEVICESICONDIRS} >>"$ICONCACHEFILE"
+	echo ${ICONTHEMENAME}		>>"$ICONCACHEFILE"
+	echo ${ICON_SIZE}	>>"$ICONCACHEFILE"
+	echo ${ACTIONSICONDIRS}		>>"$ICONCACHEFILE"
+	echo ${ANIMATIONSICONDIRS}	>>"$ICONCACHEFILE"
+	echo ${APPSICONDIRS}		>>"$ICONCACHEFILE"
+	echo ${CATEGORIESICONDIRS}	>>"$ICONCACHEFILE"
+	echo ${DEVICESICONDIRS}		>>"$ICONCACHEFILE"
+	echo ${EMBLEMSICONDIRS}		>>"$ICONCACHEFILE"
+	echo ${EMOTESICONDIRS}		>>"$ICONCACHEFILE"
+	echo ${INTLICONDIRS}		>>"$ICONCACHEFILE"
+	echo ${MIMETYPESICONDIRS}	>>"$ICONCACHEFILE"
+	echo ${PLACESICONDIRS}		>>"$ICONCACHEFILE"
+	echo ${STATUSICONDIRS}		>>"$ICONCACHEFILE"
  else
-	APPSICONDIRS="${iconcache[1]}"
-	MIMEICONDIRS="${iconcache[2]}"
-	PLACESICONDIRS="${iconcache[3]}"
-	ACTIONSICONDIRS="${iconcache[4]}"
-	DEVICESICONDIRS="${iconcache[5]}"
+	ACTIONSICONDIRS="${iconcache[2]}"
+	ANIMATIONSICONDIRS="${iconcache[3]}"
+	APPSICONDIRS="${iconcache[4]}"
+	CATEGORIESICONDIRS="${iconcache[5]}"
+	DEVICESICONDIRS="${iconcache[6]}"
+	EMBLEMSICONDIRS="${iconcache[7]}"
+	EMOTESICONDIRS="${iconcache[8]}"
+	INTLICONDIRS="${iconcache[9]}"
+	MIMETYPESICONDIRS="${iconcache[10]}"
+	PLACESICONDIRS="${iconcache[11]}"
+	STATUSICONDIRS="${iconcache[12]}"
 	retvalue=1
  fi
 
@@ -188,7 +217,7 @@ compare_with_icon_directories()
 {
 
  IFS=$':'
- for cdi in $ICONTHEMESBASEDIRS
+ for cdi in $BASEDIRS
  do
 	[ "$cdi" -nt "$ICONCACHEFILE" ] && return 0
  done
@@ -202,13 +231,19 @@ compare_with_icon_directories()
 # =========================================================================================================
 get_icon_dirs()
 {
+
+ local -a ICONTHEMES		# List of all icon themes present in the system
+ local ICONTHEMES_INDEX=0
+ local -a ICONSSEARCHLIST	# List of indexes (in ICONTHEMES array) of icon themes present in the inheritance tree
+ local ICONSSEARCHLIST_INDEX=0
+
  #
  # Generate list of all applicable icon themes present in the system:
  #	ICONTHEMES array with ICONTHEMES_INDEX items present
  #
 
  IFS=$':'
- for iti in $ICONTHEMESBASEDIRS
+ for iti in $BASEDIRS
  do
 	for ittheme in $iti/*/index.theme
 	do
@@ -253,8 +288,8 @@ get_icon_dirs()
  #	ICONSSEARCHLIST array with ICONSSEARCHLIST_INDEX items present
  #
 
- # Start the tree with either user selected theme or fall back to PREFERRED_ICON_THEME defined on the top
- [ -n "$ICONTHEMENAME" ] && search_for_theme_by_dir "$ICONTHEMENAME" || search_for_theme_by_dir "$PREFERRED_ICON_THEME"
+ # Start the tree with either user selected theme or fall back to DEFAULT_ICON_THEME defined on the top
+ [ -n "$ICONTHEMENAME" ] && search_for_theme_by_dir "$ICONTHEMENAME" || search_for_theme_by_dir "$DEFAULT_ICON_THEME"
  [ -n "$ICONTHEMEINDEX" ] && ICONSSEARCHLIST[ $((ICONSSEARCHLIST_INDEX++)) ]="$ICONTHEMEINDEX"
 
 
@@ -279,47 +314,82 @@ get_icon_dirs()
  done
 
  # Close the tree by theme named Hicolor as per the specification.
- # As Hicolor has known directory structure this call replaced with the constants concatenation below
- # for performance reasons.
- # search_for_theme_by_name "Hicolor" && ICONSSEARCHLIST[ $((ICONSSEARCHLIST_INDEX++)) ]="$ICONTHEMEINDEX"
+ search_for_theme_by_name "Hicolor" && ICONSSEARCHLIST[ $((ICONSSEARCHLIST_INDEX++)) ]="$ICONTHEMEINDEX"
+
+ # Add preferred directories as prefix for each context.
+ ACTIONSICONDIRS="$PREFERRED_ACTIONSICONDIRS"
+ ANIMATIONSICONDIRS="$PREFERRED_ANIMATIONSICONDIRS"
+ APPSICONDIRS="$PREFERRED_APPSICONDIRS"
+ CATEGORIESICONDIRS="$PREFERRED_CATEGORIESICONDIRS"
+ DEVICESICONDIRS="$PREFERRED_DEVICESICONDIRS"
+ EMBLEMSICONDIRS="$PREFERRED_EMBLEMSICONDIRS"
+ EMOTESICONDIRS="$PREFERRED_EMOTESICONDIRS"
+ INTLICONDIRS="$PREFERRED_INTLICONDIRS"
+ MIMETYPESICONDIRS="$PREFERRED_MIMETYPESICONDIRS"
+ PLACESICONDIRS="$PREFERRED_PLACESICONDIRS"
+ STATUSICONDIRS="$PREFERRED_STATUSICONDIRS"
 
  for(( iti=0; iti<ICONSSEARCHLIST_INDEX; iti++ ))
  do
 	#
 	# For each icon theme in the inheritance tree re-read index.theme file and search for directories
-	# with context of interest (e.g. 'MimeTypes') and size of PREFERRED_ICON_SIZE
+	# with context of interest (e.g. 'MimeTypes') and size of ICON_SIZE
 	#
 
 	itdir=
 	itsize=
 	itcontext=
-	itmimedirs=
-	itappsdirs=
-	itplacesdirs=
 	itactionsdirs=
+	itanimationsdirs=
+	itappsdirs=
+	itcategoriesdirs=
 	itdevicesdirs=
+	itemblemsdirs=
+	itemotesdirs=
+	itintldirs=
+	itmimetypesdirs=
+	itplacesdirs=
+	itstatusdirs=
 	while IFS=$'= \t' read itkey itvalue
 	do
 		case $itkey in
 			\[*)		# As per the specification the Icon Theme group goes first.
-					# If another group starts then Icon Theme group is over.
-				if [ -n "$itdir" ] && [[ "$itsize" -eq "$PREFERRED_ICON_SIZE" ]]
+						# If another group starts then Icon Theme group is over.
+				if [ -n "$itdir" ] && [[ "$itsize" -eq "$ICON_SIZE" ]]
 				then
 					case $itcontext in
-						'MimeTypes')
-							itmimedirs="$itmimedirs:$itdir"
+						'Actions')
+							itactionsdirs="$itactionsdirs:$itdir"
+							;;
+						'Animations')
+							itanimationsdirs="$itanimationsdirs:$itdir"
 							;;
 						'Applications')
 							itappsdirs="$itappsdirs:$itdir"
 							;;
-						'Places')
-							itplacesdirs="$itplacesdirs:$itdir"
-							;;
-						'Actions')
-							itactionsdirs="$itactionsdirs:$itdir"
+						'Categories')
+							itcategoriesdirs="$itcategoriesdirs:$itdir"
 							;;
 						'Devices')
 							itdevicesdirs="$itdevicesdirs:$itdir"
+							;;
+						'Emblems')
+							itemblemsdirs="$itemblemsdirs:$itdir"
+							;;
+						'Emotes')
+							itemotesdirs="$itemotesdirs:$itdir"
+							;;
+						'International')
+							itintldirs="$itintldirs:$itdir"
+							;;
+						'MimeTypes')
+							itmimetypesdirs="$itmimetypesdirs:$itdir"
+							;;
+						'Places')
+							itplacesdirs="$itplacesdirs:$itdir"
+							;;
+						'Status')
+							itstatusdirs="$itstatusdirs:$itdir"
 							;;
 					esac
 				fi
@@ -339,11 +409,17 @@ get_icon_dirs()
 				;;
 		esac
 	done < "${ICONTHEMES[ ((ICONSSEARCHLIST[ $iti ]+3)) ]}"
-	itmimedirs="${itmimedirs#$':'}"
-	itappsdirs="${itappsdirs#$':'}"
-	itplacesdirs="${itplacesdirs#$':'}"
 	itactionsdirs="${itactionsdirs#$':'}"
+	itanimationsdirs="${itanimationsdirs#$':'}"
+	itappsdirs="${itappsdirs#$':'}"
+	itcategoriesdirs="${itcategoriesdirs#$':'}"
 	itdevicesdirs="${itdevicesdirs#$':'}"
+	itemblemsdirs="${itemblemsdirs#$':'}"
+	itemotesdirs="${itemotesdirs#$':'}"
+	itintldirs="${itintldirs#$':'}"
+	itmimetypesdirs="${itmimetypesdirs#$':'}"
+	itplacesdirs="${itplacesdirs#$':'}"
+	itstatusdirs="${itstatusdirs#$':'}"
 
 	#
 	# Check for presence of each found subdirectory in each standard icon theme base directory
@@ -352,56 +428,77 @@ get_icon_dirs()
 
 	itdir="${ICONTHEMES[ ${ICONSSEARCHLIST[ $iti ]} ]}"
 	IFS=$':'
-	for itj in $ICONTHEMESBASEDIRS
+	for itj in $BASEDIRS
 	do
-		for itk in $itmimedirs
+		for itk in $itactionsdirs
 		do
 			itl="$itj/$itdir/$itk"
-			[ -d "$itl" ] && MIMEICONDIRS="$MIMEICONDIRS:$itl"
+			[ -d "$itl" ] && ACTIONSICONDIRS="$ACTIONSICONDIRS:$itl"
+		done
+		for itk in $itanimationsdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && ANIMATIONSICONDIRS="$ANIMATIONSICONDIRS:$itl"
 		done
 		for itk in $itappsdirs
 		do
 			itl="$itj/$itdir/$itk"
 			[ -d "$itl" ] && APPSICONDIRS="$APPSICONDIRS:$itl"
 		done
-		for itk in $itplacesdirs
+		for itk in $itcategoriesdirs
 		do
 			itl="$itj/$itdir/$itk"
-			[ -d "$itl" ] && PLACESICONDIRS="$PLACESICONDIRS:$itl"
-		done
-		for itk in $itactionsdirs
-		do
-			itl="$itj/$itdir/$itk"
-			[ -d "$itl" ] && ACTIONSICONDIRS="$ACTIONSICONDIRS:$itl"
+			[ -d "$itl" ] && CATEGORIESICONDIRS="$CATEGORIESICONDIRS:$itl"
 		done
 		for itk in $itdevicesdirs
 		do
 			itl="$itj/$itdir/$itk"
 			[ -d "$itl" ] && DEVICESICONDIRS="$DEVICESICONDIRS:$itl"
 		done
+		for itk in $itemblemsdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && EMBLEMSICONDIRS="$EMBLEMSICONDIRS:$itl"
+		done
+		for itk in $itemotesdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && EMOTESICONDIRS="$EMOTESICONDIRS:$itl"
+		done
+		for itk in $itintldirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && INTLICONDIRS="$INTLICONDIRS:$itl"
+		done
+		for itk in $itmimetypesdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && MIMETYPESICONDIRS="$MIMETYPESICONDIRS:$itl"
+		done
+		for itk in $itplacesdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && PLACESICONDIRS="$PLACESICONDIRS:$itl"
+		done
+		for itk in $itstatusdirs
+		do
+			itl="$itj/$itdir/$itk"
+			[ -d "$itl" ] && STATUSICONDIRS="$STATUSICONDIRS:$itl"
+		done
 	done
  done
 
- # Close the search path by theme named Hicolor as per the specification.
- # Applications defaults are set up at top and Hicolor theme is already added as prefix
- # as applications most likely add custom icons there.
- # APPSICONDIRS="$APPSICONDIRS:$HICOLORAPPSDIR"
- MIMEICONDIRS="$MIMEICONDIRS:$HICOLORMIMEDIR"
- PLACESICONDIRS="$PLACESICONDIRS:$HICOLORPLACESDIR"
- ACTIONSICONDIRS="$ACTIONSICONDIRS:$HICOLORACTIONSDIR"
- DEVICESICONDIRS="$DEVICESICONDIRS:$HICOLORDEVICESDIR"
-
- APPSICONDIRS=${APPSICONDIRS#$':'}	# just for a case - if someone dropped defaults
- MIMEICONDIRS=${MIMEICONDIRS#$':'}
- PLACESICONDIRS=${PLACESICONDIRS#$':'}
  ACTIONSICONDIRS=${ACTIONSICONDIRS#$':'}
+ ANIMATIONSICONDIRS=${ANIMATIONSICONDIRS#$':'}
+ APPSICONDIRS=${APPSICONDIRS#$':'}
+ CATEGORIESICONDIRS=${CATEGORIESICONDIRS#$':'}
  DEVICESICONDIRS=${DEVICESICONDIRS#$':'}
-
-#echo "Applications: $APPSICONDIRS" >&2
-#echo "MimeTypes:    $MIMEICONDIRS" >&2
-#echo "Places:       $PLACESICONDIRS" >&2
-#echo "Actions:      $ACTIONSICONDIRS" >&2
-#echo "Devices:      $DEVICESICONDIRS" >&2
+ EMBLEMSICONDIRS=${EMBLEMSICONDIRS#$':'}
+ EMOTESICONDIRS=${EMOTESICONDIRS#$':'}
+ INTLICONDIRS=${INTLICONDIRS#$':'}
+ MIMETYPESICONDIRS=${MIMETYPESICONDIRS#$':'}
+ PLACESICONDIRS=${PLACESICONDIRS#$':'}
+ STATUSICONDIRS=${STATUSICONDIRS#$':'}
 }
 
 # =========================================================================================================
@@ -460,6 +557,8 @@ get_default_icon_theme()
 		[ -n "$diflag" ] && sessionname="$dii" && break
 	done
 	: ${sessionname:="LXDE"}	# fallback to the default lxsession session name
+
+	# sessionname=${DESKTOP_SESSION-"LXDE"} # alternative to the above code?
 
 	IFS=$':'
 	for dii in $XDG_CONFIG_HOME $XDG_CONFIG_DIRS
@@ -587,6 +686,128 @@ search_for_theme_by_name()
 }
 
 # =========================================================================================================
+# find_icon function receives two mandatory arguments. The first argument is either context standard name
+# or context standard directory name as per the specification. The second one is the supposed icon base
+# name in the given context.
+# It searches for full name of such an icon, sets up ICON variable with it and returns success if found.
+# Otherwise it returns failure.
+# =========================================================================================================
+find_icon()
+{
+	local fidirs
+
+	case $1 in
+		'Actions' | 'actions')
+			fidirs="$ACTIONSICONDIRS"
+			;;
+		'Animations' | 'animations')
+			fidirs="$ANIMATIONSICONDIRS"
+			;;
+		'Applications' | 'apps')
+			fidirs="$APPSICONDIRS"
+			;;
+		'Categories' | 'categories')
+			fidirs="$CATEGORIESICONDIRS"
+			;;
+		'Devices' | 'devices')
+			fidirs="$DEVICESICONDIRS"
+			;;
+		'Emblems' | 'emblems')
+			fidirs="$EMBLEMSICONDIRS"
+			;;
+		'Emotes' | 'emotes')
+			fidirs="$EMOTESICONDIRS"
+			;;
+		'International' | 'intl')
+			fidirs="$INTLICONDIRS"
+			;;
+		'MimeTypes' | 'mimetypes')
+			fidirs="$MIMETYPESICONDIRS"
+			;;
+		'Places' | 'places')
+			fidirs="$PLACESICONDIRS"
+			;;
+		'Status' | 'status')
+			fidirs="$STATUSICONDIRS"
+			;;
+	esac
+
+	IFS=$':'
+	for fidir in $fidirs
+	do
+		for fiext in ".png" ".svg" ".xpm"
+		do
+			fifile="$fidir/$2$fiext"
+			[ -r "$fifile" ] && ICON="$fifile" && return 0
+		done
+	done
+
+	return 1
+}
+
+# =========================================================================================================
+# find_*_icon functions receive one mandatory argument - supposed icon base name in given context.
+# They search for full name of such an icon, set up ICON variable with it and return success if found.
+# Otherwise they return failure.
+#
+# Each function's name is formed with the given context standard directory name as per the specification.
+# =========================================================================================================
+find_actions_icon()
+{
+	find_icon Actions $1
+}
+
+find_animations_icon()
+{
+	find_icon Animations $1
+}
+
+find_apps_icon()
+{
+	find_icon Applications $1
+}
+
+find_categories_icon()
+{
+	find_icon Categories $1
+}
+
+find_devices_icon()
+{
+	find_icon Devices $1
+}
+
+find_emblems_icon()
+{
+	find_icon Emblems $1
+}
+
+find_emotes_icon()
+{
+	find_icon Emotes $1
+}
+
+find_intl_icon()
+{
+	find_icon International $1
+}
+
+find_mimetypes_icon()
+{
+	find_icon MimeTypes $1
+}
+
+find_places_icon()
+{
+	find_icon Places $1
+}
+
+find_status_icon()
+{
+	find_icon Status $1
+}
+
+# =========================================================================================================
 # find_icon_for_mime_type function receives one mandatory argument - MIME type/subtype.
 # It searches for suitable icon file and sets up ICON variable with it's full name and returns success if found.
 # Otherwise it returns failure.
@@ -595,18 +816,24 @@ find_icon_for_mime_type()
 {
 
  # Check for standard icon name first
- find_mime_icon "${1//'/'/$'-'}" && return 0
+ find_icon mimetypes "${1//'/'/$'-'}" && return 0
 
- # Next fall back to applications installed customizations:
+ # Next fall back to installed applications' customizations:
 
  # Load all possible icon names and generic icon names if not done so yet
  if [ -z "$ICONNAMES_LOADED" ]
  then
 	IFS=$'\n\r\t ' # restore default field separator
 	fitfiles="$XDG_DATA_HOME/mime/icons:${XDG_DATA_DIRS//':'/$'/mime/icons:'}/mime/icons:$XDG_DATA_HOME/mime/generic-icons:${XDG_DATA_DIRS//':'/$'/mime/generic-icons:'}/mime/generic-icons"
+
 	IFS=$':'
+	fitfiles_completed=
 	for fitfile in $fitfiles
 	do
+		# Sanity check: avoid duplicate file names
+		fitfile="${fitfile//$'//'/$'/'}"
+		[[ "$fitfiles_completed" =~ (^|:)$fitfile(:|$) ]] && continue
+		fitfiles_completed+="$fitfile:"
 		[ ! -r "$fitfile" ] && continue
 		while IFS=$':' read fitmime fiticon
 		do
@@ -621,26 +848,26 @@ find_icon_for_mime_type()
  local fiti=0
  while [ "$fiti" -lt "$ICONNAMES_INDEX" ]
  do
-	[ "${ICONNAMES[fiti]}" == "$1" ] && find_mime_icon "${ICONNAMES[((fiti+1))]}" && return 0
+	[ "${ICONNAMES[fiti]}" == "$1" ] && find_icon mimetypes "${ICONNAMES[((fiti+1))]}" && return 0
 	(( fiti+=2 ))
  done
 
  # Next look for a generic icon for given type
  case $1 in
 	*/*script*)
-		find_mime_icon "text-x-script" && return 0
+		find_icon mimetypes "text-x-script" && return 0
 		;;
 	*/*font*)
-		find_mime_icon "font-x-generic" && return 0
+		find_icon mimetypes "font-x-generic" && return 0
 		;;
 	*/*zip*)
-		find_mime_icon "package-x-generic" && return 0
+		find_icon mimetypes "package-x-generic" && return 0
 		;;
 	application/*)
 		# Skip this match to handle it below...
 		;;
 	*/*)
-		find_mime_icon "${1%%/*}-x-generic" && return 0
+		find_icon mimetypes "${1%%/*}-x-generic" && return 0
 		;;
  esac
 
@@ -649,123 +876,27 @@ find_icon_for_mime_type()
  if [ -n "$ICON" ]
  then
 	[ -r "$ICON" ] && return 0
-	find_apps_icon "$ICON" && return 0
+	find_icon apps "$ICON" && return 0
  fi
  # Use the executable name as the icon name
  fitexec="${EXEC##+([[:space:]])}"
  fitexec="${fitexec%%[[:space:]]*}"
  fitexec="${fitexec##*/}"
- find_apps_icon "$fitexec" && return 0
+ find_icon apps "$fitexec" && return 0
 
  # Use the default icon as the last resort
- find_mime_icon "application-x-executable" && return 0
+ find_icon mimetypes "application-x-executable" && return 0
 
  return 1
 }
 
 # =========================================================================================================
-# find_mime_icon function receives one mandatory argument - supposed icon base name in MimeTypes context.
-# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
-# Otherwise it returns failure.
+# find_mime_icon function is a wrapper function for find_mimetypes_icon function for backward compatibility
+# with version 1.0.
 # =========================================================================================================
 find_mime_icon()
 {
-
- IFS=$':'
- for midir in $MIMEICONDIRS
- do
-	for miext in ".png" ".svg" ".xpm"
-	do
-		mifile="$midir/$1$miext"
-		[ -r "$mifile" ] && ICON="$mifile" && return 0
-	done
- done
-
- return 1
-}
-
-# =========================================================================================================
-# find_apps_icon function receives one mandatory argument - supposed icon base name in Applications context.
-# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
-# Otherwise it returns failure.
-# =========================================================================================================
-find_apps_icon()
-{
-
- IFS=$':'
- for aidir in $APPSICONDIRS
- do
-	for aiext in ".png" ".svg" ".xpm"
-	do
-		aifile="$aidir/$1$aiext"
-		[ -r "$aifile" ] && ICON="$aifile" && return 0
-	done
- done
-
- return 1
-}
-
-# =========================================================================================================
-# find_places_icon function receives one mandatory argument - supposed icon base name in Places context.
-# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
-# Otherwise it returns failure.
-# =========================================================================================================
-find_places_icon()
-{
-
- IFS=$':'
- for pidir in $PLACESICONDIRS
- do
-	for piext in ".png" ".svg" ".xpm"
-	do
-		pifile="$pidir/$1$piext"
-		[ -r "$pifile" ] && ICON="$pifile" && return 0
-	done
- done
-
- return 1
-}
-
-# =========================================================================================================
-# find_actions_icon function receives one mandatory argument - supposed icon base name in Actions context.
-# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
-# Otherwise it returns failure.
-# =========================================================================================================
-find_actions_icon()
-{
-
- IFS=$':'
- for aidir in $ACTIONSICONDIRS
- do
-	for aiext in ".png" ".svg" ".xpm"
-	do
-		aifile="$aidir/$1$aiext"
-		[ -r "$aifile" ] && ICON="$aifile" && return 0
-	done
- done
-
- return 1
-}
-
-# =========================================================================================================
-# find_devices_icon function receives one mandatory argument - supposed icon base name in Devices context.
-# It searches for full name of such an icon and sets up ICON variable with it and returns success if found.
-# Otherwise it returns failure.
-# =========================================================================================================
-find_devices_icon()
-{
-
- IFS=$':'
- for didir in $DEVICESICONDIRS
- do
-	for diext in ".png" ".svg" ".xpm"
-	do
-		difile="$didir/$1$diext"
-		[ -r "$difile" ] && ICON="$difile" && return 0
-	done
- done
-
- return 1
+ find_icon mimetypes "$1"
 }
 
 # --------------------------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 #! /bin/bash
 
 #
-# Mime-functions version 1.0
+# Mime-functions version 1.1
 #
-# Copyright (C) 2014 Andriy Martynets <martynets@volia.ua>
+# Copyright (C) 2014, 2015 Andriy Martynets <martynets@volia.ua>
 #--------------------------------------------------------------------------------------------------------------
 # This file is part of xdg-bash-functions.
 #
@@ -49,6 +49,8 @@
 shopt -qs extglob
 shopt -qs globstar
 
+IFS=$'\n\r\t ' # restore default field separator
+
 #--------------------------------------------------------------------------------------------------------------
 # Global variables:
 #--------------------------------------------------------------------------------------------------------------
@@ -89,6 +91,8 @@ TERMINAL=false
 
 declare -a MIMECACHE
 MIMECACHE_INDEX=0
+MIME_DATA_CHANGED="false"
+MIMECACHE_LOADED="false"
 
 declare -a MIMEALIASES
 ALIASES_INDEX=0
@@ -100,6 +104,7 @@ MAILCAP_LOADED=
 
 MIMEAPPSFILES=
 MIMEINFOCACHEDIRS=
+MIMEALIASESDIRS=
 
 FILEBROWSER=
 FILEBROWSERNAME=
@@ -107,7 +112,6 @@ FILEBROWSERICON=
 
 DEFAULTICON=
 
-MIME_DATA_CHANGED="false"
 MIME_FUNCTIONS_NAME=
 
 #--------------------------------------------------------------------------------------------------------------
@@ -141,6 +145,24 @@ mime_functions_init()
  local retvalue=0
  local cache_is_obsolete=
 
+ # Reset global variables
+ save_mime_cache
+
+ MIMECACHE=()
+ MIMECACHE_INDEX=0
+
+ MIMEALIASES=()
+ ALIASES_INDEX=0
+ ALIASES_LOADED=
+
+ MAILCAP=()
+ MAILCAP_INDEX=0
+ MAILCAP_LOADED=
+
+ MIMEAPPSFILES=
+ MIMEINFOCACHEDIRS=
+ MIMEALIASESDIRS=
+
  [ "$1" == "true" ] && cache_is_obsolete=1	# this is not really necessary as icon_functions_init
 						# will confirm the cache file is out-of-date
 
@@ -149,39 +171,77 @@ mime_functions_init()
  ipathes="$XDG_CONFIG_HOME:$XDG_DATA_HOME/applications:$XDG_CONFIG_DIRS:${XDG_DATA_DIRS//':'/$'/applications:'}/applications"
 
  # Generate list of all applicable filenames for MIMEAPPS files and test all these files and their directories whether
- # they were changed since last run:
+ # they were changed since last run (we don't track the files are deleted - this is potential issue):
  IFS=$':'
+ idirs=
  for idir in $ipathes
  do
 	[ -z "$idir" ] && continue
+
+	# Sanity check: avoid duplicates
+	idir="${idir%$'/'}"
+	idir="${idir//$'//'/$'/'}"
+	[[ "$idirs" =~ (^|:)$idir(:|$) ]] && continue
+	idirs+="$idir:"
+
 	[ "$idir" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
 	for idesktop in $XDG_CURRENT_DESKTOP
 	do
 		[ -z "$idesktop" ] && continue
 		ifile="$idir/$idesktop-$MIMEAPPS"
 		[ ! -r "$ifile" ] && continue
+		MIMEAPPSFILES+="$ifile:"
 		[ "$ifile" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
-		MIMEAPPSFILES="$MIMEAPPSFILES:$ifile"
 	done
 	ifile="$idir/$MIMEAPPS"
 	[ ! -r "$ifile" ] && continue
-	MIMEAPPSFILES="$MIMEAPPSFILES:$ifile"
+	MIMEAPPSFILES+="$ifile:"
 	[ "$ifile" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
  done
- MIMEAPPSFILES="${MIMEAPPSFILES#$':'}"
+ MIMEAPPSFILES="${MIMEAPPSFILES%$':'}"
 
  # Generate list of all applicable directories for mimeinfo.cache files and test all these files whether
  # they were changed since last run:
  IFS=$':'
+ idirs=
  for idir in $XDG_DATA_DIRS
  do
 	[ -z "$idir" ] && continue
+
+	# Sanity check: avoid duplicates
+	idir="${idir%$'/'}"
+	idir="${idir//$'//'/$'/'}"
+	[[ "$idirs" =~ (^|:)$idir(:|$) ]] && continue
+	idirs+="$idir:"
+
 	ifile="$idir/applications/mimeinfo.cache"
 	[ ! -r "$ifile" ] && continue
-	MIMEINFOCACHEDIRS="$MIMEINFOCACHEDIRS:$idir"
+	MIMEINFOCACHEDIRS+="$idir:"
 	[ "$ifile" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
  done
- MIMEINFOCACHEDIRS="${MIMEINFOCACHEDIRS#$':'}"
+ MIMEINFOCACHEDIRS="${MIMEINFOCACHEDIRS%$':'}"
+
+
+ # Generate list of all applicable directories for aliases files and test all these files whether
+ # they were changed since last run:
+ IFS=$':'
+ idirs=
+ for idir in $XDG_DATA_HOME $XDG_DATA_DIRS
+ do
+	[ -z "$idir" ] && continue
+
+	# Sanity check: avoid duplicates
+	idir="${idir%$'/'}"
+	idir="${idir//$'//'/$'/'}"
+	[[ "$idirs" =~ (^|:)$idir(:|$) ]] && continue
+	idirs+="$idir:"
+
+	ifile="$idir/mime/aliases"
+	[ ! -r "$ifile" ] && continue
+	MIMEALIASESDIRS+="$idir:"
+	[ "$ifile" -nt "$MIMECACHEFILE" ] && cache_is_obsolete=1
+ done
+ MIMEALIASESDIRS="${MIMEALIASESDIRS%$':'}"
 
  # Walk through the list of mailcap files and test them whether they or their directories were changed since last run:
  IFS=$':'
@@ -202,15 +262,19 @@ mime_functions_init()
  if ! icon_functions_init "$1" && [ -z "$cache_is_obsolete" ] && [ -r "$MIMECACHEFILE" ] &&\
 	[ "$MIME_FUNCTIONS_NAME" -ot "$MIMECACHEFILE" ]
  then
-	IFS=$'\r\n'
-	MIMECACHE=( $(<"$MIMECACHEFILE") )
-	MIMECACHE_INDEX=${#MIMECACHE[*]}
+	if [ "$MIMECACHE_LOADED" == "false" ]
+	then
+		IFS=$'\r\n'
+		MIMECACHE=( $(<"$MIMECACHEFILE") )
+		MIMECACHE_INDEX=${#MIMECACHE[*]}
+		MIMECACHE_LOADED="true"
+	fi
 	retvalue=1
  fi
 
  # Setup default icon for files of unknown type
- find_mime_icon "application-x-executable" || find_places_icon "start-here" || find_apps_icon "system-software-install"\
-	|| find_apps_icon "system-file-manager"
+ find_icon mimetypes "application-x-executable" || find_icon places "start-here" || find_icon apps "system-software-install"\
+	|| find_icon apps "system-file-manager"
  DEFAULTICON="$ICON"
 
  # Find default file browser to use it as the dummy command for files of unknown type
@@ -231,8 +295,8 @@ mime_functions_init()
 	[ -z "$FILEBROWSER" ] && FILEBROWSER="true" && FILEBROWSERNAME="--no file manager found--" &&\
 		iexecname="true"
  fi
- find_places_icon "folder" || find_apps_icon "system-file-manager" || find_apps_icon "${ICON:-$iexecname}"\
-	|| ICON="$DEFAULTICON"
+ find_icon places "folder" || find_icon apps "system-file-manager" || find_icon apps "${ICON:-$iexecname}" ||\
+	ICON="$DEFAULTICON"
  FILEBROWSERICON="$ICON"
 
  return $retvalue
@@ -253,6 +317,8 @@ save_mime_cache()
 	do
 		echo ${MIMECACHE[ci]} >>"$MIMECACHEFILE"
 	done
+	MIME_DATA_CHANGED="false"
+	MIMECACHE_LOADED="true"
  fi
 }
 
@@ -328,16 +394,13 @@ find_command_for_type()
  if [ -z "$ALIASES_LOADED" ]
  then
 	IFS=$':'
-	for idir in $XDG_DATA_HOME $XDG_DATA_DIRS
+	for idir in $MIMEALIASESDIRS
 	do
-		[ -z "$idir" ] && continue
-		ifile="$idir/mime/aliases"
-		[ ! -r "$ifile" ] && continue
 		while IFS=$' ' read ialiase itype
 		do
 			MIMEALIASES[$((ALIASES_INDEX++))]=$itype
 			MIMEALIASES[$((ALIASES_INDEX++))]=$ialiase
-		done < "$ifile"
+		done < "$idir/mime/aliases"
 	done
 	ALIASES_LOADED=1
  fi
