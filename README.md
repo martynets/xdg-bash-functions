@@ -1,4 +1,4 @@
-Copyright (C) 2014, 2015 Andriy Martynets <martynets@volia.ua>
+Copyright (C) 2014, 2015 Andriy Martynets [martynets@volia.ua](mailto:martynets@volia.ua)<br>
 See the end of the file for license conditions.
 
 -------------------------------------------------------------------------------
@@ -91,7 +91,7 @@ The `find_icon_for_mime_type` function extends `find_mimetypes_icon` function fu
 >Note: all functions actively use the `IFS` variable and alter it each time they are called. The script shuld not assume any particular value of this variable and must set it before use. The default value of the field separator (`IFS=$'\n\r\t '`) must be restored before sourcing of the configuration file, if any (see `Configuration` section below).
 
 Example script for icon functions and its possible output in comments:
-```
+```shell
 #! /bin/bash
 . "${0%/*}/icon-functions"
 icon_functions_init true
@@ -131,7 +131,7 @@ The `get_command_for_type` function extends the above one. It receives the same 
 >Note: all functions actively use the `IFS` variable and alter it each time they are called. The script shuld not assume any particular value of this variable and must set it before use. The default value of the field separator (`IFS=$'\n\r\t '`) must be restored before sourcing of the configuration file, if any (see `Configuration` section below).
 
 Example script for MIME functions - prints info for files in working directory:
-```
+```shell
 #! /bin/bash
 . "${0%/*}/mime-functions"              # Source xdg-bash-functions
 mime_functions_init true                # Initialize xdg-bash-functions
@@ -194,7 +194,7 @@ It is good idea to put all user customizable variables in a separate configurati
 >Note: Value of the field separator `IFS` affects parameter substitution operations. The default value (`IFS=$'\n\r\t '`) must be restored before sourcing of the configuration file if the last one contains any parameter substitution operations.
 
 The above example script can be extended with the following lines to maintain the configuration file:
-```
+```shell
 #! /bin/bash
 . "${0%/*}/mime-functions"          # Source xdg-bash-functions
 
@@ -209,11 +209,10 @@ DROP_CACHE="true"
 mime_functions_init $DROP_CACHE     # Initialize xdg-bash-functions
 ```
 The following is the full list of customizable variables and can be used as the configuration file:
-```
+```shell
 #-------------------------------------------------------------------------------
 # NOTE: This file is sourced by the bash shell script and must conform to
 # the bash syntax!
-#-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # mime-functions customizable variables:
 #-------------------------------------------------------------------------------
@@ -298,7 +297,7 @@ ICON_SIZE=16
 ```
 
 #####Bug Reporting
-You can send `xdg-bash-functions` bug reports and/or any compatibility issues directly to the author <martynets@volia.ua>.
+You can send `xdg-bash-functions` bug reports and/or any compatibility issues directly to the author [martynets@volia.ua](mailto:martynets@volia.ua).
 
 You can also use the online bug tracking system in the GitHub `xdg-bash-functions` project to submit new problem reports or search for existing ones:
 
@@ -311,7 +310,7 @@ https://github.com/martynets/xdg-bash-functions/issues
 |1.0|Initial release|
 
 #####License
-Copyright (C) 2014, 2015 Andriy Martynets <martynets@volia.ua>
+Copyright (C) 2014, 2015 Andriy Martynets [martynets@volia.ua](mailto:martynets@volia.ua)<br>
 This file is part of `xdg-bash-functions`.
 
 `xdg-bash-functions` is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.
