@@ -1,9 +1,9 @@
 #! /bin/bash
 
 #
-# Xdg-bash-functions version 1.1
+# Xdg-bash-functions version 1.2
 #
-# Copyright (C) 2014, 2015 Andriy Martynets <martynets@volia.ua>
+# Copyright (C) 2014, 2015, 2016 Andriy Martynets <martynets@volia.ua>
 #--------------------------------------------------------------------------------------------------------------
 # This file is part of xdg-bash-functions.
 #
@@ -26,16 +26,18 @@
 #
 # Packages which these functions depend on:
 #	coreutils (mkdir tool - see icon_functions_init function below)
-#	procps (ps tool - used only if lxsession is running, see get_default_icon_theme function below)
 #
 #
-# find_mime_icon, find_apps_icon and find_places_icon are main functions.
-# find_icon_for_mime_type function is the extended version of find_mime_icon function and tries to guess
+# find_icon and find_<context>_icon are main functions.
+# find_icon_for_mime_type function is the extended version of find_mimetypes_icon function and tries to guess
 # suitable icon name for the given MIME type.
 #
 # Call to icon_functions_init function must precede any other calls and is to setup global variables.
 #
 #
+
+PROJECT_NAME="xdg-bash-functions"
+VERSION="1.2"
 
 shopt -qs extglob
 
@@ -338,6 +340,8 @@ get_icon_dirs()
 
 	itdir=
 	itsize=
+	itminsize=
+	itmaxsize=
 	itcontext=
 	itactionsdirs=
 	itanimationsdirs=
@@ -350,12 +354,13 @@ get_icon_dirs()
 	itmimetypesdirs=
 	itplacesdirs=
 	itstatusdirs=
+
 	while IFS=$'= \t' read itkey itvalue
 	do
 		case $itkey in
 			\[*)		# As per the specification the Icon Theme group goes first.
 						# If another group starts then Icon Theme group is over.
-				if [ -n "$itdir" ] && [[ "$itsize" -eq "$ICON_SIZE" ]]
+				if [ -n "$itdir" ] && [[ "$itsize" -eq "$ICON_SIZE" || "$itminsize" -le "$ICON_SIZE" && "$itmaxsize" -ge "$ICON_SIZE" ]]
 				then
 					case $itcontext in
 						'Actions')
@@ -399,16 +404,64 @@ get_icon_dirs()
 				itdir="${itkey#*\[}"
 				itdir="${itdir%%\]*}"
 				itsize=
+				itminsize=
+				itmaxsize=
 				itcontext=
 				;;
 			Size)
 				itsize="$itvalue"
+				;;
+			MinSize)
+				itminsize="$itvalue"
+				;;
+			MaxSize)
+				itmaxsize="$itvalue"
 				;;
 			Context)
 				itcontext="$itvalue"
 				;;
 		esac
 	done < "${ICONTHEMES[ ((ICONSSEARCHLIST[ $iti ]+3)) ]}"
+
+	if [ -n "$itdir" ] && [[ "$itsize" -eq "$ICON_SIZE" || "$itminsize" -le "$ICON_SIZE" && "$itmaxsize" -ge "$ICON_SIZE" ]]
+	then
+		case $itcontext in
+			'Actions')
+				itactionsdirs="$itactionsdirs:$itdir"
+				;;
+			'Animations')
+				itanimationsdirs="$itanimationsdirs:$itdir"
+				;;
+			'Applications')
+				itappsdirs="$itappsdirs:$itdir"
+				;;
+			'Categories')
+				itcategoriesdirs="$itcategoriesdirs:$itdir"
+				;;
+			'Devices')
+				itdevicesdirs="$itdevicesdirs:$itdir"
+				;;
+			'Emblems')
+				itemblemsdirs="$itemblemsdirs:$itdir"
+				;;
+			'Emotes')
+				itemotesdirs="$itemotesdirs:$itdir"
+				;;
+			'International')
+				itintldirs="$itintldirs:$itdir"
+				;;
+			'MimeTypes')
+				itmimetypesdirs="$itmimetypesdirs:$itdir"
+				;;
+			'Places')
+				itplacesdirs="$itplacesdirs:$itdir"
+				;;
+			'Status')
+				itstatusdirs="$itstatusdirs:$itdir"
+				;;
+		esac
+	fi
+
 	itactionsdirs="${itactionsdirs#$':'}"
 	itanimationsdirs="${itanimationsdirs#$':'}"
 	itappsdirs="${itappsdirs#$':'}"
@@ -544,21 +597,17 @@ get_default_icon_theme()
 
 
  # First check lxsession configuration files
- sessionname=
- if [ -n "$_LXSESSION_PID" ]
+ if [ -n "$_LXSESSION_PID" ] && [ -r /proc/$_LXSESSION_PID/cmdline ]
  then
-	IFS=$' \t'
-	lxsession=$(ps e --pid $_LXSESSION_PID -o args=)
+	sessionname=
 	diflag=
-	for dii in $lxsession
+	while read -d $'\0' dii
 	do
 		[ "$dii" == "-s" ] && diflag=1 && continue
-		[ -n "$diflag" ] && [ -z "$dii" ] && continue
 		[ -n "$diflag" ] && sessionname="$dii" && break
-	done
-	: ${sessionname:="LXDE"}	# fallback to the default lxsession session name
+	done < /proc/$_LXSESSION_PID/cmdline	# This works for Linux, might fail for different OS
 
-	# sessionname=${DESKTOP_SESSION-"LXDE"} # alternative to the above code?
+	: ${sessionname:="LXDE"}	# fallback to the default lxsession session name
 
 	IFS=$':'
 	for dii in $XDG_CONFIG_HOME $XDG_CONFIG_DIRS
@@ -900,3 +949,33 @@ find_mime_icon()
 }
 
 # --------------------------------------------------------------------------------------------
+
+
+ifsourced=$(caller)
+ifsourced=${ifsourced:0:1}
+if [ "$ifsourced" == "0" ]
+then	# the script is run on its own
+	cat << EOUSAGE
+$PROJECT_NAME v$VERSION
+Copyright (C) 2014, 2015, 2016 Andriy Martynets <martynets@volia.ua>
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions. See the GNU GPL for details.
+
+Usage:
+	source ${0##*/}
+	. ${0##*/}
+
+This is set of bash functions to operate on current icon theme based on
+freedesktop.org specifications:
+	Icon Theme Specification version 0.11
+	Icon Naming Specification version 0.8.90
+
+This file designed to be sourced by a script and can't be used on its own.
+
+Full documentation at: <https://github.com/martynets/xdg-bash-functions/>
+or available locally via: man xdg-bash-functions
+
+EOUSAGE
+fi

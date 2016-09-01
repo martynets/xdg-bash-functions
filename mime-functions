@@ -1,9 +1,9 @@
 #! /bin/bash
 
 #
-# Mime-functions version 1.1
+# Mime-functions version 1.2
 #
-# Copyright (C) 2014, 2015 Andriy Martynets <martynets@volia.ua>
+# Copyright (C) 2014, 2015, 2016 Andriy Martynets <martynets@volia.ua>
 #--------------------------------------------------------------------------------------------------------------
 # This file is part of xdg-bash-functions.
 #
@@ -46,6 +46,9 @@
 # end of the executed script.
 #
 
+PROJECT_NAME="xdg-bash-functions"
+VERSION="1.2"
+
 shopt -qs extglob
 shopt -qs globstar
 
@@ -60,8 +63,9 @@ IFS=$'\n\r\t ' # restore default field separator
 # On some old systems the below name might need to be changed to defaults.list
 MIMEAPPS=mimeapps.list
 
-# Debian derivatives default terminal emulator x-terminal-emulator may refer to lxterminal which seems to have a bug -
-# it doesn't handle properly command like:
+# Debian derivatives' default terminal emulator x-terminal-emulator may refer to
+# lxterminal which seems to have a bug - it doesn't handle properly command
+# like:
 #	lxterminal -e 'cat "/bin/bzcmp" | less'
 DEFAULTTERMINALCOMMAND="lxterm -fa 'Mono:size=13:antialias=false' -e"
 DEFAULTPAGER=less
@@ -72,7 +76,7 @@ DEFAULTPAGER=less
 : ${XDG_CONFIG_DIRS:=/etc/xdg}
 : ${XDG_DATA_DIRS:=/usr/local/share:/usr/share}
 
-# Default locations of mailcap files
+# Default fully qualified names of mailcap files
 MAILCAPFILES="$HOME/.mailcap:/etc/mailcap:/usr/share/etc/mailcap:/usr/local/etc/mailcap"
 
 # List of file managers to try if system default one not found
@@ -967,3 +971,35 @@ translate_exec()
 }
 
 # --------------------------------------------------------------------------------------------
+
+
+mfsourced=$(caller)
+mfsourced=${mfsourced:0:1}
+if [ "$mfsourced" == "0" ]
+then	# the script is run on its own
+	cat << EOUSAGE
+$PROJECT_NAME v$VERSION
+Copyright (C) 2014, 2015, 2016 Andriy Martynets <martynets@volia.ua>
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions. See the GNU GPL for details.
+
+Usage:
+	source ${0##*/}
+	. ${0##*/}
+
+This is set of bash functions to provide commands and icons for files of
+registered MIME types based on freedesktop.org specifications:
+	Shared MIME-info Database specification version 0.20
+	Association between MIME types and applications version 1.0
+	Desktop Entry Specification versions 0.9.5 and 1.1
+ and mailcap file format (Appendix A of RFC 1524).
+
+This file designed to be sourced by a script and can't be used on its own.
+
+Full documentation at: <https://github.com/martynets/xdg-bash-functions/>
+or available locally via: man xdg-bash-functions
+
+EOUSAGE
+fi
