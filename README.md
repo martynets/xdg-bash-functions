@@ -1,9 +1,9 @@
-Copyright (C) 2014, 2015, 2016 Andriy Martynets [martynets@volia.ua](mailto:martynets@volia.ua)  
-See the end of the file for license conditions.
+Copyright (C) 2014, 2015, 2016 Andriy Martynets [martynets@volia.ua](mailto:martynets@volia.ua)<br>
+See end of this file for license conditions.
 
 -------------------------------------------------------------------------------
 
-#####Introduction
+#### Introduction
 The `xdg-bash-functions` is a set of `bash` shell functions designed in accordance with `freedesktop.org` specifications with the goal to be desktop independent and don't rely on any desktop specific configuration managers. These functions process system wide and user specific configuration files to get requested information. But they do not provide functionality to alter any of the configuration files.
 
 Current version consists of two sets of functions:
@@ -12,7 +12,7 @@ Current version consists of two sets of functions:
 
 As processing of many configuration files can be time consuming this set of functions caches the information that have been read to minimize disk operations and speed up subsequent calls. Also there is functionality to commit internal cache to a file and reuse it on next run.
 
-#####Specifications
+#### Specifications
 The package is based on the following `freedesktop.org` specifications and the RFC:
 - Icon Theme Specification version [0.13](https://specifications.freedesktop.org/icon-theme-spec/0.13/)
 - Icon Naming Specification version [0.8.90](https://specifications.freedesktop.org/icon-naming-spec/0.8.90/)
@@ -21,7 +21,7 @@ The package is based on the following `freedesktop.org` specifications and the R
 - Desktop Entry Specification versions 0.9.5 and [1.1](https://specifications.freedesktop.org/desktop-entry-spec/1.1/)
 - mailcap file format (Appendix A of [RFC 1524](https://tools.ietf.org/html/rfc1524)).
 
-#####Software Requirements
+#### Software Requirements
 This package uses `bash` specific extensions and requires `bash` shell version 4+.
 
 Additionally it may call external tools and read system files and thus depends on the following packages and host system configuration:
@@ -44,7 +44,7 @@ Icon functions may read configuration files of the following optional packages:
 - GTK+ 3.x;
 - various icon themes.
 
-#####Downloading
+#### Downloading
 The latest released version of the `xdg-bash-functions` package can be checked by the link below:
 
 https://github.com/martynets/xdg-bash-functions/releases/latest
@@ -57,7 +57,7 @@ The `xdg-bash-functions` project is also available via Git access from the GitHu
 
 https://github.com/martynets/xdg-bash-functions.git
 
-#####Installation
+#### Installation
 This package does not require any kind of installation. The files can be copied to any convenient location. To make them available system-wide the `/usr/bin` directory is the most suitable.
 >Note: `icon-functions` file is sourced by `mime-functions` and both of them must be located in the same directory.
 
@@ -71,7 +71,7 @@ make uninstall
 ```
 > Note: above commands perform changes in `/usr/bin` directory and thus require root privileges.
 
-#####Icon Functions Usage
+#### Icon Functions Usage
 The `icon-functions` file can be sourced by a script which needs to resolve an icon name to the fully qualified icon file name from the user preferred icon theme. Current version of the package supports all standard contexts of icon themes.
 
 The `icon_functions_init` function must be called first to initialize internal variables. It expects single argument which forces to regenerate values of internal variables (`true`) or to try to restore them from the cache file (any other value or null). The main purpose of this argument is to inform the init function that some settings have been changed and the values stored in the cache file are no longe valid ones. The function tracks the icon size and the icon theme name for which the internal variables were generated and regenerates them once these values are changed. Any other configuration changes must be flagged to the function by the argument. This makes sense if the main script maintains some configuration file and the last one (or the script itself) is newer then the cache file which name is stored in `ICONCACHEFILE` variable. The function returns success if internal variables were initialized from scratch or failure if values of the variables were restored from the cache file. Once the function regenerates values of internal variables they are flushed to the cache file immediately. The init function is reentrant and can be called to respond to configuration changes during runtime.
@@ -127,7 +127,7 @@ find_icon_for_mime_type test/x-type && echo "$ICON"
 exit 0
 ```
 
-#####MIME Functions Usage
+#### MIME Functions Usage
 The `mime-functions` file can be sourced by a script which needs to get the viewing command for a file of the given MIME type. The former sources the `icon-functions` file and uses the icon functions to find the icon file name to represent the given MIME type.
 
 The `mime_functions_init` function must be called first to initialize internal variables. It expects single argument which indicates to drop data collected in the cache file during previous runs and start caching from scratch (`true`) or to load them (any other value or null). The purpose of this argument is absolutely the same as in the case of icon functions init function described above. The name of the cache file is stored in `MIMECACHEFILE` variable. The function returns success if the data were initialized from scratch or failure if data collected during previous runs were loaded from the cache file. The function will also drop the cache if it detects that some system wide or user specific configuration files are newer than the cache file. In particular it checks `mimeapps.list`, `mimeinfo.cache`, `aliases` and `mailcap` files.
@@ -196,7 +196,7 @@ View command: leafpad "README"
 Icon file: /usr/share/icons/lubuntu/mimes/48/text-plain.svg
 ```
 
-#####Configuration
+#### Configuration
 Both MIME functions and icon functions have user customizable variables which define defaults and preferences. They all are listed at top of each file, highlighted as a section, supplied with comments and their names are pretty self-explanatory.
 
 These values can be changed by the main script somewhere between sourcing of the functions file and call to the init function. The result is unpredictable if any of the variables are changed after the init function call. If there is a need to alter some configuration values at runtime the init function must be called repeatedly to address the change. Also, it could be a case that some variables are refered to in definitions of another ones. If so, when the former is changed the latter needs to be redefined as well.
@@ -308,23 +308,23 @@ The following is the full list of customizable variables and can be used as the 
 #-------------------------------------------------------------------------------
 ```
 
-#####Bug Reporting
+#### Bug Reporting
 You can send `xdg-bash-functions` bug reports and/or any compatibility issues directly to the author [martynets@volia.ua](mailto:martynets@volia.ua).
 
 You can also use the online bug tracking system in the GitHub `xdg-bash-functions` project to submit new problem reports or search for existing ones:
 
 https://github.com/martynets/xdg-bash-functions/issues
 
-#####Change Log
+#### Change Log
 |Publication Date| Version | Changes |
 |----------------|---------|---------|
-|Sep 1, 2016|1.2|Added support for icons' `MinSize` - `MaxSize` (in fact scalable icons support);<br>Added `Makefile` to facilitate Debian packaging;<br>Added manpages;<br>Added usage memo output for direct calls (not sourcing);<br>Fixed bugs:  <li>last section of each `index.theme` file was ignored;
+|Sep 1, 2016|1.2|Added support for icons' `MinSize` - `MaxSize` (in fact scalable icons support);<br>Added `Makefile` to facilitate Debian packaging;<br>Added manpages;<br>Added usage memo output for direct calls (not sourcing);<br>Fixed bugs: <br> &bull; last section of each `index.theme` file was ignored;
 |Nov 12, 2015|1.1|Initialization functions made reentrant, added support for all icon theme standard contexts, some configuration variables removed/renamed for consistency|
 |Dec 22, 2014|1.0|Initial release|
 |Nov 23, 2014|1.0-RC|Initial development, non-released version|
 
-#####License
-Copyright (C) 2014, 2015, 2016 Andriy Martynets [martynets@volia.ua](mailto:martynets@volia.ua)  
+#### License
+Copyright (C) 2014, 2015, 2016 Andriy Martynets [martynets@volia.ua](mailto:martynets@volia.ua)<br>
 This file is part of `xdg-bash-functions`.
 
 `xdg-bash-functions` is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.
